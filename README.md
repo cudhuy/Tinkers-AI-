@@ -8,6 +8,10 @@ Cue is a tool designed to help you conduct effective meetings by providing real-
 
 To run the backend:
 
+1. Create a `.env` file in the `backend` directory based on the provided `.env.example`
+2. Add your OpenAI API key: `OPENAI_API_KEY="YOUR_OPENAI_API_KEY"`
+3. Install dependencies using uv
+4. Run FastAPI with: `python main.py`
 
 ### Frontend
 
