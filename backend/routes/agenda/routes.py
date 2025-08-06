@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Body
 
 from core.openai import client
-from routes.agenda.model import Agenda, Message
+from routes.agenda.model import Agenda, AgendaForm, Message
 from routes.agenda.prompts import AGENDA_CREATION_PROMPT
 
 agenda_router = APIRouter(prefix="/agenda", tags=["agenda"])
@@ -11,7 +11,7 @@ conversation = []
 
 @agenda_router.post("/")
 async def upload_agenda(
-    agenda: Agenda = Body(
+    agenda: AgendaForm = Body(
         example={
             "title": "Team Weekly Meeting",
             "time": "01:30:00",
@@ -27,23 +27,25 @@ async def upload_agenda(
     ]
 
     # Generate initial agenda
-    completion = client.chat.completions.create(
+    completion = client.beta.chat.completions.parse(
         model="gpt-4o-mini",
         messages=messages,
+        response_format=Agenda,
     )
-    response = completion.choices[0].message.content
+    response = completion.choices[0].message.parsed
 
     conversation = messages
 
     return response
 
 
-@agenda_router.post("/feedback")
-async def provide_feedback(message: Message):
+@agenda_router.post("/chat")
+async def chat_with_agenda(message: Message):
     global conversation
+    # conversation.append({"role": "assistant", "content": "Hello, how can I help you today?"})
     conversation.append({"role": "user", "content": message.content})
 
-    completion = client.chat.completions.create(
+    completion = client.beta.chat.completions.parse(
         model="gpt-4o-mini",
         messages=conversation,
     )
