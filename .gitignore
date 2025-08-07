@@ -1,3 +1,5 @@
 .env
 __pycache__
 uv.lock
+node_modules
+.vscode

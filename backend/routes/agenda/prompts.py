@@ -1,11 +1,15 @@
 from routes.agenda.model import AgendaForm
 
 AGENDA_CREATION_PROMPT = """
-Generate a professional, clear, and compelling sales meeting agenda based on the above info. The agenda should include:
-Time plan - Break down the session into clearly defined segments (e.g. intro, client insights, demo, Q&A, wrap-up).
-Background section - Provide a brief overview of client: what they do, their market position, relevant recent news (you may simulate this based on available info).
-Participants insights - Add relevant professional insights about each participant based on their role (e.g., what might matter to a Procurement Manager vs. a Medical Director).
-Preparation tips - Suggest specific preparation steps to help the sales executive enter the meeting with confidence. Include key messaging tips, likely objections, and tailored value propositions.
-Outcome goals - Add clear objectives to aim for in the meeting (e.g., securing a pilot project, scheduling follow-up with technical team)
-The output should be well-formatted and suitable for internal preparation and sharing with other stakeholders on the sales team.
+As a project manager expert based on the provided context, generate the agenda with the following clearly defined sections:
+
+checklist: A concise list of outcome-oriented goals for the meeting (e.g., "Secure commitment for pilot", "Schedule follow-up technical meeting").
+
+time_plan: Break down the agenda into sequential segments with clearly marked start and end times (HH:MM format), including segments such as introduction, client background review, solution demonstration, Q&A, and wrap-up.
+
+preparation_tips: A tailored list of practical preparation recommendations to ensure the sales executive is confident and well-equipped for the meeting. Include key messaging suggestions, expected objections, and personalized value propositions aligned with client needs.
+
+participants_insights: Provide succinct and relevant insights into each participant's potential priorities and concerns based on their professional roles (e.g., different focal points for Procurement Manager vs. Medical Director).
+
+Ensure the output is professional, detailed, and suitable for internal preparation and stakeholder alignment.
 """

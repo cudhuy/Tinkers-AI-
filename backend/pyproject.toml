@@ -3,10 +3,9 @@ name = "facilitator"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
-    "fastapi[standard]>=0.115.12",
-    "openai>=1.76.0",
     "openai-agents>=0.0.13",
-    "websockets>=15.0.1",
+    "pydantic>=2.11.3",
+    "python-dotenv>=1.1.0",
 ]
