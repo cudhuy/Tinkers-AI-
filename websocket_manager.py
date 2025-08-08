@@ -2,7 +2,6 @@ import asyncio
 import json
 import websockets
 
-
 # WebSocketManager class to handle persistent WebSocket connection
 class WebSocketManager:
     def __init__(self, uri):
@@ -17,10 +16,10 @@ class WebSocketManager:
         if self.websocket is None:
             await self.connect()
         try:
-            # Format the message as a JSON object with content field
-            # We don't specify a type so the server will broadcast it to all clients
+            # Format the message as a JSON object with content field and origin
             json_message = json.dumps({
-                "content": message
+                "content": message,
+                "from": "agent"
             })
             await self.websocket.send(json_message)
             return f"Message sent: {message}"

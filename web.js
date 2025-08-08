@@ -67,8 +67,8 @@ document.addEventListener('DOMContentLoaded', () => {
 						addMessage(`Error: ${message.content}`, 'error');
 						break;
 					case 'pong':
-						// Server response to ping (optional)
-						console.log('Received pong from server');
+					case 'ping':
+						// Ignore keepalive messages in UI
 						break;
 					default:
 						addMessage(`Received: ${message.content}`, 'unknown');
@@ -117,10 +117,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Send message to WebSocket server
 	function sendMessage() {
 		const query = queryInput.value.trim();
-		if (query && socket && socket.readyState === WebSocket.OPEN) {
+		if (query && socket.readyState === WebSocket.OPEN) {
 			const message = {
 				type: 'query',
 				content: query,
+				from: 'frontend',
 			};
 			socket.send(JSON.stringify(message));
 			addMessage(`Question: ${query}`, 'sent');

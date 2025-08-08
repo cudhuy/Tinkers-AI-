@@ -1,115 +1,133 @@
 import asyncio
 import websockets
 import json
+import time
 
-# Set to keep track of all connected clients
-connected_clients = set()
+# Sets to keep track of frontend and agent connections
+frontend_clients = set()
+agent_clients = set()
+
+PING_INTERVAL = 50  # seconds
+
 
 async def echo(websocket):
+    origin = None
     try:
-        # Add the client to our set of connected clients
-        connected_clients.add(websocket)
-        print(f"Client connected. Total clients: {len(connected_clients)}")
-        
+        # Wait for the first message to identify the client type
+        first_message = await websocket.recv()
+        try:
+            first_data = json.loads(first_message)
+            origin = first_data.get("from", "frontend")
+        except Exception:
+            origin = "frontend"
+
+        if origin == "agent":
+            agent_clients.add(websocket)
+            print(f"Agent connected. Total agents: {len(agent_clients)}")
+        else:
+            frontend_clients.add(websocket)
+            print(f"Frontend connected. Total frontends: {len(frontend_clients)}")
+
+        # Process the first message
+        await process_message(websocket, first_message, origin)
+
         async for message in websocket:
-            try:
-                # Parse the incoming message as JSON
-                data = json.loads(message)
-                print(f"Received message: {data}")
-                
-                # Handle different message types
-                if data.get('type') == 'query':
-                    response = {
-                        'type': 'response',
-                        'content': f"Received your question: {data.get('content')}"
-                    }
-                    # Send response only to the client that sent the query
-                    await websocket.send(json.dumps(response))
-                    
-                elif data.get('type') == 'ping':
-                    # Respond to ping with a pong to keep the connection alive
-                    response = {
-                        'type': 'pong',
-                        'content': 'keepalive'
-                    }
-                    print("Received ping, sending pong")
-                    await websocket.send(json.dumps(response))
-                    
-                # If it's a message from the agent system, broadcast to all clients
-                elif 'content' in data and not data.get('type') == 'ping':
-                    # Format for broadcasting to web clients
-                    broadcast_message = {
-                        'type': 'update',
-                        'content': data.get('content')
-                    }
-                    # Broadcast to all connected clients
-                    await broadcast(json.dumps(broadcast_message))
-                    
-                    # Also send acknowledgment to the sender
-                    response = {
-                        'type': 'update',
-                        'content': f"Broadcast: {data.get('content')}"
-                    }
-                    await websocket.send(json.dumps(response))
-                else:
-                    response = {
-                        'type': 'update',
-                        'content': f"Received unknown message type: {data.get('type')}"
-                    }
-                    await websocket.send(json.dumps(response))
-                
-            except json.JSONDecodeError:
-                # If not valid JSON, echo back as plain text
-                print(f"Received non-JSON message: {message}")
-                # Try to broadcast the raw message
-                try:
-                    broadcast_message = {
-                        'type': 'update',
-                        'content': message
-                    }
-                    await broadcast(json.dumps(broadcast_message))
-                except:
-                    # If broadcasting fails, just send error to the sender
-                    await websocket.send(json.dumps({
-                        'type': 'error',
-                        'content': 'Invalid message format. Please send JSON.'
-                    }))
+            await process_message(websocket, message, origin)
     except websockets.exceptions.ConnectionClosed:
         print("Connection closed")
     except Exception as e:
         print(f"Error in echo handler: {e}")
     finally:
-        # Remove the client from our set when they disconnect
-        connected_clients.remove(websocket)
-        print(f"Client disconnected. Total clients: {len(connected_clients)}")
+        if origin == "agent":
+            agent_clients.discard(websocket)
+            print(f"Agent disconnected. Total agents: {len(agent_clients)}")
+        else:
+            frontend_clients.discard(websocket)
+            print(f"Frontend disconnected. Total frontends: {len(frontend_clients)}")
 
 
-async def broadcast(message):
-    """Broadcast a message to all connected clients"""
-    if connected_clients:
-        # Create a list of coroutines to send the message to each client
-        coroutines = [client.send(message) for client in connected_clients]
-        # Execute all coroutines concurrently
-        await asyncio.gather(*coroutines, return_exceptions=True)
-        print(f"Broadcast message to {len(connected_clients)} clients")
+async def process_message(websocket, message, origin):
+    try:
+        data = json.loads(message)
+        msg_from = data.get("from", origin)
+        msg_type = data.get("type")
+        print(f"Received message from {msg_from}: {data}")
+
+        if msg_type == "ping":
+            response = {"type": "pong", "content": "keepalive"}
+            await websocket.send(json.dumps(response))
+            return
+
+        # Route based on origin, but do NOT forward pings/pongs to agent
+        if msg_from == "frontend" and msg_type != "ping":
+            # Forward only non-ping messages to all agents
+            for agent_ws in agent_clients.copy():
+                print(f"Forwarding message to agent: {data}")
+                try:
+                    await agent_ws.send(json.dumps(data))
+                except Exception:
+                    agent_clients.discard(agent_ws)
+        elif msg_from == "agent":
+            # Forward to all frontends (UI will filter pings/pongs)
+            for frontend_ws in frontend_clients.copy():
+                try:
+                    await frontend_ws.send(json.dumps(data))
+                except Exception:
+                    frontend_clients.discard(frontend_ws)
+        else:
+            # Unknown origin, echo back
+            await websocket.send(
+                json.dumps({"type": "error", "content": "Unknown message origin."})
+            )
+    except json.JSONDecodeError:
+        print(f"Received non-JSON message: {message}")
+        await websocket.send(
+            json.dumps(
+                {
+                    "type": "error",
+                    "content": "Invalid message format. Please send JSON.",
+                }
+            )
+        )
+
+
+async def ping_clients():
+    while True:
+        await asyncio.sleep(PING_INTERVAL)
+        # Ping all frontend clients
+        for ws in list(frontend_clients):
+            try:
+                await ws.send(
+                    json.dumps(
+                        {"type": "ping", "content": "keepalive", "from": "server"}
+                    )
+                )
+            except Exception:
+                frontend_clients.discard(ws)
 
 
 async def start_websocket_server():
-    # Set a longer ping timeout and interval to prevent quick disconnections
-    server = await websockets.serve(
-        echo, 
-        "localhost", 
-        8765, 
-        ping_interval=50,  # Send ping every 50 seconds
-        ping_timeout=30    # Wait 30 seconds for pong response
-    )
+    server = await websockets.serve(echo, "localhost", 8765)
     print("WebSocket server started on ws://localhost:8765")
+    # Start the ping task
+    asyncio.create_task(ping_clients())
     await server.wait_closed()
 
 
-async def main():
-    await start_websocket_server()
+def main():
+    asyncio.run(start_websocket_server())
+
+
+def keep_running():
+    while True:
+        try:
+            main()
+        except Exception as e:
+            print(
+                f"WebSocket server crashed with error: {e}. Restarting in 2 seconds..."
+            )
+            time.sleep(2)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    keep_running()

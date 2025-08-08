@@ -1,6 +1,7 @@
 import asyncio
 from dotenv import load_dotenv
 from pydantic import BaseModel
+import json
 
 load_dotenv()
 from agents import (
@@ -80,71 +81,39 @@ async def wait_for_server(websocket_uri, timeout=5):
 
 
 async def main():
-    from websocket_server import start_websocket_server
-
-    # Variable to track the server task if we start it
-    server_task = None
     websocket_uri = "ws://localhost:8765"
-
-    # Try to start the WebSocket server
-    try:
-        server_task = asyncio.create_task(start_websocket_server())
-        await asyncio.sleep(0.1)  # Brief pause to check if it starts or fails
-        if server_task.done():
-            # Check if the task failed with an "address already in use" error
-            try:
-                server_task.result()  # This will raise the exception if there was one
-            except OSError as e:
-                if "address already in use" in str(e):
-                    print("WebSocket server already running on port 8765")
-                    server_task = None  # No need to manage a task we didn't start
-                else:
-                    raise  # Re-raise other exceptions
-        else:
-            print("Started WebSocket server")
-    except Exception as e:
-        if "address already in use" in str(e):
-            print("WebSocket server already running on port 8765")
-            server_task = None  # No need to manage a task we didn't start
-        else:
-            raise  # Re-raise other exceptions (e.g., invalid host)
-
-    # Connect to the WebSocket server, retrying until success or timeout
     try:
         websocket_manager = await wait_for_server(websocket_uri)
     except TimeoutError as e:
         print(f"Error: {e}")
         print("Make sure the WebSocket server is running on port 8765")
-        return  # Exit the function if we can't connect
+        return
 
-    # Set up the context with the WebSocketManager
     context = {"websocket_manager": websocket_manager}
-
-    # Test inputs for the triage agent
-    inputs = [
-        "who was the first president of the united states?",
-        "what is the capital of this country?",
-        "Please send the answers to both questions via WebSocket.",
-    ]
     history = []
-    for input in inputs:
-        history.append({"content": input, "role": "user"})
-        result = await Runner.run(triage_agent, history, context=context)
-        print(result.final_output)
-        history = result.to_input_list()
-
-    # Clean up: Close the WebSocket connection
-    await websocket_manager.close()
-
-    # If we started the server, cancel it gracefully
-    if server_task:
-        server_task.cancel()
-        try:
-            await server_task
-        except asyncio.CancelledError:
-            pass
-
-    print(history)
+    print("Agent connected and running. Waiting for frontend messages...")
+    try:
+        await websocket_manager.send("Agent ready")
+        while True:
+            msg = await websocket_manager.websocket.recv()
+            try:
+                data = json.loads(msg)
+                if data.get("from") == "frontend":
+                    user_input = data.get("content", "")
+                    if user_input:
+                        history.append({"content": user_input, "role": "user"})
+                        result = await Runner.run(
+                            triage_agent, history, context=context
+                        )
+                        print(result.final_output)
+                        history = result.to_input_list()
+                # Ignore messages not from frontend
+            except Exception as e:
+                print(f"Error processing message: {e}")
+    except Exception as e:
+        print(f"Agent main loop error: {e}")
+    finally:
+        await websocket_manager.close()
 
 
 if __name__ == "__main__":
