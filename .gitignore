@@ -1,3 +1,5 @@
 .env
 __pycache__
-uy.lock
+uv.lock
+node_modules
+.vscode

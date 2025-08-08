@@ -23,59 +23,114 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { agendaAPI } from '@/lib/api';
+import { X } from 'lucide-react';
 
 // Define the form schema using zod
 const formSchema = z.object({
 	title: z.string().min(2, {
 		message: 'Title must be at least 2 characters.',
 	}),
-	agenda: z.string().min(5, {
-		message: 'Agenda must be at least 5 characters.',
-	}),
-	meetingTime: z.string().nonempty('Please select meeting duration'),
-	meetingType: z.enum(['sales', 'internal'], {
-		message: 'Please select a valid meeting type.',
-	}),
+
+	description: z.string().optional(),
+
+	time: z.string().nonempty('Please select meeting duration'),
+
+	type_of_meeting: z
+		.enum(['Sales Meeting', 'Internal Meeting'])
+		.refine((val) => !!val, { message: 'Please select a valid meeting type' })
+		.optional(),
+	// Participants will be handled separately
 });
 
-// Generate time options from 15min to 3h in 15min increments
-const timeOptions = Array.from({ length: 12 }, (_, i) => {
-	const minutes = (i + 1) * 15;
-	let display;
-
-	if (minutes < 60) {
-		display = `${minutes} minutes`;
-	} else {
-		const hours = Math.floor(minutes / 60);
-		const remainingMinutes = minutes % 60;
-		display =
-			remainingMinutes > 0
-				? `${hours} hour${hours > 1 ? 's' : ''} ${remainingMinutes} minutes`
-				: `${hours} hour${hours > 1 ? 's' : ''}`;
-	}
-
-	return { value: minutes.toString(), display };
-});
+// Define the form type
+type FormValues = z.infer<typeof formSchema>;
 
 export default function FormPage() {
 	const router = useRouter();
+	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [participants, setParticipants] = useState<string[]>([]);
+	const [newParticipant, setNewParticipant] = useState('');
+	const [participantsError, setParticipantsError] = useState('');
 
 	// Define the form
 	const form = useForm<z.infer<typeof formSchema>>({
 		resolver: zodResolver(formSchema),
 		defaultValues: {
 			title: '',
-			agenda: '',
-			meetingTime: '',
-			meetingType: undefined,
+			description: '',
+			time: '30',
+			type_of_meeting: undefined,
 		},
 	});
 
+	const addParticipant = () => {
+		if (!newParticipant.trim()) {
+			setParticipantsError('Participant name cannot be empty');
+			return;
+		}
+
+		setParticipants([...participants, newParticipant.trim()]);
+		setNewParticipant('');
+		setParticipantsError('');
+	};
+
+	const removeParticipant = (index: number) => {
+		const updatedParticipants = [...participants];
+		updatedParticipants.splice(index, 1);
+		setParticipants(updatedParticipants);
+	};
+
+	const handleKeyPress = (e: React.KeyboardEvent) => {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			addParticipant();
+		}
+	};
+
 	// Submit handler
-	function onSubmit(values: z.infer<typeof formSchema>) {
-		console.log(values);
-		// Instead of alert, redirect to agenda page
-		router.push('/agenda');
+	async function onSubmit(values: z.infer<typeof formSchema>) {
+		setIsSubmitting(true);
+		try {
+			// Convert time to HH:MM:SS format
+			const minutes = parseInt(values.time);
+			const hours = Math.floor(minutes / 60);
+			const remainingMinutes = minutes % 60;
+			const meetingDuration = `${hours
+				.toString()
+				.padStart(2, '0')}:${remainingMinutes.toString().padStart(2, '0')}:00`;
+
+			const payload = {
+				title: values.title,
+				meeting_duration: meetingDuration,
+				description: values.description || null,
+				type_of_meeting: values.type_of_meeting || null,
+				participants: participants.length > 0 ? participants : null,
+			};
+
+			console.log('Sending payload:', payload);
+
+			// Use the API utility instead of direct fetch
+			const data = await agendaAPI.createAgenda(payload);
+
+			// Store the agenda data in localStorage to access it on the agenda page
+			localStorage.setItem('agendaData', JSON.stringify(data));
+
+			// Clear any existing chat messages for the previous agenda
+			localStorage.removeItem('chatMessages');
+
+			// Remove the previous agenda hash to force a chat reset
+			localStorage.removeItem('agendaHash');
+
+			// Redirect to agenda page
+			router.push('/agenda');
+		} catch (error) {
+			console.error('Error submitting form:', error);
+			alert('Failed to submit form. Please try again.');
+		} finally {
+			setIsSubmitting(false);
+		}
 	}
 
 	return (
@@ -109,28 +164,80 @@ export default function FormPage() {
 
 						<FormField
 							control={form.control}
-							name='agenda'
+							name='description'
 							render={({ field }) => (
 								<FormItem>
-									<FormLabel>Agenda</FormLabel>
+									<FormLabel>Description (Optional)</FormLabel>
 									<FormControl>
 										<Textarea
-											placeholder='Enter meeting agenda'
+											placeholder='Enter meeting description and goals'
 											className='min-h-[100px] resize-none'
 											{...field}
 										/>
 									</FormControl>
 									<FormDescription>
-										Outline the key points to be discussed.
+										Describe the purpose and goals of this meeting.
 									</FormDescription>
 									<FormMessage />
 								</FormItem>
 							)}
 						/>
 
+						{/* Participants section with add/remove functionality */}
+						<div>
+							<FormLabel>Participants (Optional)</FormLabel>
+							<div className='flex mt-2 mb-2'>
+								<Input
+									value={newParticipant}
+									onChange={(e) => setNewParticipant(e.target.value)}
+									onKeyDown={handleKeyPress}
+									placeholder='Enter participant name'
+									className='flex-grow'
+								/>
+								<Button type='button' onClick={addParticipant} className='ml-2'>
+									Add
+								</Button>
+							</div>
+
+							{participantsError && (
+								<p className='text-sm font-medium text-red-500 mt-1'>
+									{participantsError}
+								</p>
+							)}
+
+							<div className='mt-2'>
+								{participants.length > 0 ? (
+									<div className='flex flex-wrap gap-2'>
+										{participants.map((participant, index) => (
+											<div
+												key={index}
+												className='bg-gray-100 px-3 py-1 rounded-full flex items-center text-sm'
+											>
+												<span>{participant}</span>
+												<button
+													type='button'
+													onClick={() => removeParticipant(index)}
+													className='ml-2 text-gray-500 hover:text-gray-700'
+												>
+													<X size={14} />
+												</button>
+											</div>
+										))}
+									</div>
+								) : (
+									<p className='text-sm text-gray-500'>
+										No participants added yet
+									</p>
+								)}
+							</div>
+							<FormDescription className='mt-2'>
+								Add the people who will attend the meeting
+							</FormDescription>
+						</div>
+
 						<FormField
 							control={form.control}
-							name='meetingTime'
+							name='time'
 							render={({ field }) => (
 								<FormItem>
 									<FormLabel>Meeting Duration</FormLabel>
@@ -144,11 +251,13 @@ export default function FormPage() {
 											</SelectTrigger>
 										</FormControl>
 										<SelectContent>
-											{timeOptions.map((option) => (
-												<SelectItem key={option.value} value={option.value}>
-													{option.display}
-												</SelectItem>
-											))}
+											<SelectItem value='15'>15 minutes</SelectItem>
+											<SelectItem value='30'>30 minutes</SelectItem>
+											<SelectItem value='45'>45 minutes</SelectItem>
+											<SelectItem value='60'>1 hour</SelectItem>
+											<SelectItem value='90'>1 hour 30 minutes</SelectItem>
+											<SelectItem value='120'>2 hours</SelectItem>
+											<SelectItem value='180'>3 hours</SelectItem>
 										</SelectContent>
 									</Select>
 									<FormDescription>
@@ -161,10 +270,10 @@ export default function FormPage() {
 
 						<FormField
 							control={form.control}
-							name='meetingType'
+							name='type_of_meeting'
 							render={({ field }) => (
 								<FormItem>
-									<FormLabel>Meeting Type</FormLabel>
+									<FormLabel>Meeting Type (Optional)</FormLabel>
 									<Select
 										onValueChange={field.onChange}
 										defaultValue={field.value}
@@ -175,8 +284,12 @@ export default function FormPage() {
 											</SelectTrigger>
 										</FormControl>
 										<SelectContent>
-											<SelectItem value='sales'>Sales</SelectItem>
-											<SelectItem value='internal'>Internal</SelectItem>
+											<SelectItem value='Sales Meeting'>
+												Sales Meeting
+											</SelectItem>
+											<SelectItem value='Internal Meeting'>
+												Internal Meeting
+											</SelectItem>
 										</SelectContent>
 									</Select>
 									<FormDescription>
@@ -187,8 +300,8 @@ export default function FormPage() {
 							)}
 						/>
 
-						<Button type='submit' className='w-full'>
-							Submit
+						<Button type='submit' className='w-full' disabled={isSubmitting}>
+							{isSubmitting ? 'Submitting...' : 'Submit'}
 						</Button>
 					</form>
 				</Form>
