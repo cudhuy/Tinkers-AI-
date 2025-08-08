@@ -1,4 +1,5 @@
 import asyncio
+import json
 import websockets
 
 
@@ -13,12 +14,24 @@ class WebSocketManager:
         print(f"Connected to WebSocket at {self.uri}")
 
     async def send(self, message):
-        if self.websocket is None or self.websocket.closed:
+        if self.websocket is None:
             await self.connect()
-        await self.websocket.send(message)
-        return f"Message sent: {message}"
+        try:
+            # Format the message as a JSON object with content field
+            # We don't specify a type so the server will broadcast it to all clients
+            json_message = json.dumps({
+                "content": message
+            })
+            await self.websocket.send(json_message)
+            return f"Message sent: {message}"
+        except Exception as e:
+            print(f"Error sending message: {e}")
+            return f"Error sending message: {e}"
 
     async def close(self):
-        if self.websocket and not self.websocket.closed:
-            await self.websocket.close()
-            print("WebSocket connection closed")
+        if self.websocket:
+            try:
+                await self.websocket.close()
+                print("WebSocket connection closed")
+            except Exception as e:
+                print(f"Error closing WebSocket: {e}")

@@ -1,129 +1,113 @@
 import asyncio
-import json
-import random
-
 import websockets
-from dotenv import load_dotenv
-from pydantic import BaseModel
+import json
 
-load_dotenv()
-from agents import Agent, GuardrailFunctionOutput, InputGuardrail, Runner
+# Set to keep track of all connected clients
+connected_clients = set()
 
-
-class HomeworkOutput(BaseModel):
-    is_homework: bool
-    reasoning: str
-
-
-guardrail_agent = Agent(
-    name="Guardrail check",
-    instructions="Check if the user is asking about homework.",
-    output_type=HomeworkOutput,
-)
-
-math_tutor_agent = Agent(
-    name="Math Tutor",
-    handoff_description="Specialist agent for math questions",
-    instructions="You provide help with math problems. Explain your reasoning at each step and include examples",
-)
-
-history_tutor_agent = Agent(
-    name="History Tutor",
-    handoff_description="Specialist agent for historical questions",
-    instructions="You provide assistance with historical queries. Explain important events and context clearly.",
-)
-
-
-async def homework_guardrail(ctx, agent, input_data):
-    result = await Runner.run(guardrail_agent, input_data, context=ctx.context)
-    final_output = result.final_output_as(HomeworkOutput)
-    return GuardrailFunctionOutput(
-        output_info=final_output,
-        tripwire_triggered=not final_output.is_homework,
-    )
-
-
-triage_agent = Agent(
-    name="Triage Agent",
-    instructions="You determine which agent to use based on the user's homework question",
-    handoffs=[history_tutor_agent, math_tutor_agent],
-    input_guardrails=[
-        InputGuardrail(guardrail_function=homework_guardrail),
-    ],
-)
-
-
-# Sample random messages to send to the client
-RANDOM_MESSAGES = [
-    "Math tutor is ready to help with your calculus homework!",
-    "History tutor can explain the American Revolution in detail.",
-    "Need help with algebra? Just ask the math tutor!",
-    "Our history tutor specializes in ancient civilizations.",
-    "Triage agent is analyzing your question...",
-    "Working on your query now...",
-    "Homework guardrail activated for your question.",
-    "Preparing a detailed explanation for your question.",
-]
-
-
-async def send_random_messages(websocket):
-    """Send random messages every 3 seconds to the connected client."""
-    while True:
-        message = {
-            "type": "update",
-            "content": random.choice(RANDOM_MESSAGES),
-            "timestamp": asyncio.get_event_loop().time(),
-        }
-        await websocket.send(json.dumps(message))
-        await asyncio.sleep(3)
-
-
-async def websocket_handler(websocket):
-    """Handle WebSocket connections."""
-    print(f"Client connected from {websocket.remote_address}")
-
-    # Start sending random messages
-    task = asyncio.create_task(send_random_messages(websocket))
-
+async def echo(websocket):
     try:
+        # Add the client to our set of connected clients
+        connected_clients.add(websocket)
+        print(f"Client connected. Total clients: {len(connected_clients)}")
+        
         async for message in websocket:
-            # Handle any messages from client if needed
-            data = json.loads(message)
-            print(f"Received message: {data}")
-
-            if data["type"] == "query":
-                # Process query through agents
-                result = await Runner.run(triage_agent, data["content"])
-                response = {
-                    "type": "response",
-                    "content": result.final_output,
-                    "timestamp": asyncio.get_event_loop().time(),
-                }
-                await websocket.send(json.dumps(response))
+            try:
+                # Parse the incoming message as JSON
+                data = json.loads(message)
+                print(f"Received message: {data}")
+                
+                # Handle different message types
+                if data.get('type') == 'query':
+                    response = {
+                        'type': 'response',
+                        'content': f"Received your question: {data.get('content')}"
+                    }
+                    # Send response only to the client that sent the query
+                    await websocket.send(json.dumps(response))
+                    
+                elif data.get('type') == 'ping':
+                    # Respond to ping with a pong to keep the connection alive
+                    response = {
+                        'type': 'pong',
+                        'content': 'keepalive'
+                    }
+                    print("Received ping, sending pong")
+                    await websocket.send(json.dumps(response))
+                    
+                # If it's a message from the agent system, broadcast to all clients
+                elif 'content' in data and not data.get('type') == 'ping':
+                    # Format for broadcasting to web clients
+                    broadcast_message = {
+                        'type': 'update',
+                        'content': data.get('content')
+                    }
+                    # Broadcast to all connected clients
+                    await broadcast(json.dumps(broadcast_message))
+                    
+                    # Also send acknowledgment to the sender
+                    response = {
+                        'type': 'update',
+                        'content': f"Broadcast: {data.get('content')}"
+                    }
+                    await websocket.send(json.dumps(response))
+                else:
+                    response = {
+                        'type': 'update',
+                        'content': f"Received unknown message type: {data.get('type')}"
+                    }
+                    await websocket.send(json.dumps(response))
+                
+            except json.JSONDecodeError:
+                # If not valid JSON, echo back as plain text
+                print(f"Received non-JSON message: {message}")
+                # Try to broadcast the raw message
+                try:
+                    broadcast_message = {
+                        'type': 'update',
+                        'content': message
+                    }
+                    await broadcast(json.dumps(broadcast_message))
+                except:
+                    # If broadcasting fails, just send error to the sender
+                    await websocket.send(json.dumps({
+                        'type': 'error',
+                        'content': 'Invalid message format. Please send JSON.'
+                    }))
     except websockets.exceptions.ConnectionClosed:
-        print("Client disconnected")
+        print("Connection closed")
+    except Exception as e:
+        print(f"Error in echo handler: {e}")
     finally:
-        task.cancel()
+        # Remove the client from our set when they disconnect
+        connected_clients.remove(websocket)
+        print(f"Client disconnected. Total clients: {len(connected_clients)}")
+
+
+async def broadcast(message):
+    """Broadcast a message to all connected clients"""
+    if connected_clients:
+        # Create a list of coroutines to send the message to each client
+        coroutines = [client.send(message) for client in connected_clients]
+        # Execute all coroutines concurrently
+        await asyncio.gather(*coroutines, return_exceptions=True)
+        print(f"Broadcast message to {len(connected_clients)} clients")
 
 
 async def start_websocket_server():
-    """Start WebSocket server."""
-    server = await websockets.serve(websocket_handler, "localhost", 8765)
+    # Set a longer ping timeout and interval to prevent quick disconnections
+    server = await websockets.serve(
+        echo, 
+        "localhost", 
+        8765, 
+        ping_interval=50,  # Send ping every 50 seconds
+        ping_timeout=30    # Wait 30 seconds for pong response
+    )
     print("WebSocket server started on ws://localhost:8765")
     await server.wait_closed()
 
 
 async def main():
-    # # Original code for testing agents
-    # result = await Runner.run(
-    #     triage_agent, "who was the first president of the united states?"
-    # )
-    # print(result.final_output)
-
-    # result = await Runner.run(triage_agent, "what is life")
-    # print(result.final_output)
-
-    # Start WebSocket server
     await start_websocket_server()
 
 
