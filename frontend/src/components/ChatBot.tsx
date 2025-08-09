@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid';
 import { cn } from '@/lib/utils';
 import { agendaAPI } from '@/lib/api';
 
-type Message = {
+export type Message = {
 	id: string;
 	content: string;
 	role: 'user' | 'assistant';
