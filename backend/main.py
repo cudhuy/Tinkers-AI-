@@ -1,10 +1,21 @@
 import uvicorn
 from fastapi import FastAPI
-
+from fastapi.middleware.cors import CORSMiddleware
 from routes.main import api_router
 
-app = FastAPI()
+app = FastAPI(
+    title="Meeting Facilitator API",
+)
 
+# Configure CORS middleware with more permissive settings
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_headers=["*"],
+    allow_methods=["*"],
+)
+
+# Include the API router with prefix
 app.include_router(api_router, prefix="/api")
 
 

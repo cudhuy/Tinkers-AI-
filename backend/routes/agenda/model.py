@@ -1,17 +1,15 @@
 import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
 
 class AgendaForm(BaseModel):
     title: str
-    time: datetime.timedelta
-    participants: list[str]
     description: str | None = None
-
-
-class Message(BaseModel):
-    content: str
+    meeting_duration: datetime.timedelta = datetime.timedelta(minutes=30)
+    participants: list[str] | None = None
+    type_of_meeting: Literal["Sales Meeting", "Internal Meeting"] | None = None
 
 
 class TimePlanPoint(BaseModel):
@@ -30,3 +28,13 @@ class Agenda(BaseModel):
     time_plan: list[TimePlanPoint]
     preparation_tips: list[str]
     participants_insights: list[ParticipantInsight]
+
+
+class Message(BaseModel):
+    content: str
+    role: str = "user"
+
+
+class ChatRequest(BaseModel):
+    agenda: Agenda
+    messages: list[Message] = []
