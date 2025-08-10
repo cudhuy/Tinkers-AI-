@@ -2,7 +2,10 @@ import asyncio
 import os
 
 import websockets
+from dotenv import load_dotenv
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+load_dotenv()
 
 conversation_router = APIRouter(prefix="/conversation", tags=["conversation"])
 
