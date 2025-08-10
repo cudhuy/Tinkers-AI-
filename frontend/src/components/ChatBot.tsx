@@ -1,6 +1,12 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, {
+	useEffect,
+	useRef,
+	useState,
+	Dispatch,
+	SetStateAction,
+} from 'react';
 import { nanoid } from 'nanoid';
 import { cn } from '@/lib/utils';
 import { agendaAPI } from '@/lib/api';
@@ -32,7 +38,14 @@ type AgendaData = {
 	participants_insights: ParticipantInsight[];
 };
 
-export default function ChatBot() {
+// Thêm interface cho props của ChatBot
+interface ChatBotProps {
+	onMessagesChange?: Dispatch<SetStateAction<Message[]>>;
+}
+
+export default function ChatBot(props: ChatBotProps) {
+	const { onMessagesChange } = props; // Props để cập nhật state ở parent component
+
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [input, setInput] = useState('');
 	const [loading, setLoading] = useState(false);
@@ -228,6 +241,13 @@ export default function ChatBot() {
 
 		return formattedText;
 	};
+
+	// Thêm useEffect để gọi onMessagesChange khi messages thay đổi
+	useEffect(() => {
+		if (onMessagesChange) {
+			onMessagesChange(messages); // Gọi hàm callback để cập nhật state ở parent component
+		}
+	}, [messages, onMessagesChange]);
 
 	return (
 		<div className='flex flex-col w-full h-full border rounded-lg overflow-hidden bg-white'>
