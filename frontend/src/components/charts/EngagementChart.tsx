@@ -20,9 +20,9 @@ interface EngagementChartProps {
 export function EngagementChart({ data }: EngagementChartProps) {
 	return (
 		<div className='px-4 py-2'>
-			<h4 className='text-base font-medium'>User Engagement</h4>
+			<h4 className='text-base font-medium'></h4>
 			<p className='text-sm text-muted-foreground'>
-				Daily engagement for the past 14 days
+				Percentage of user engagement in call
 			</p>
 			<div className='h-[200px] mt-4'>
 				<ResponsiveContainer width='100%' height='100%'>
@@ -44,41 +44,24 @@ export function EngagementChart({ data }: EngagementChartProps) {
 						<CartesianGrid strokeDasharray='3 3' className='stroke-muted' />
 						<XAxis
 							dataKey='date'
-							className='text-xs'
-							tickFormatter={(value) => {
-								const date = new Date(value);
-								return `${date.getDate()}/${date.getMonth() + 1}`;
-							}}
+							axisLine={false}
+							tickLine={false}
+							tick={false} // Remove the tick labels entirely
 						/>
-						<YAxis className='text-xs' />
+						<YAxis
+							className='text-xs'
+							domain={[0, 100]}
+							tickFormatter={(value) => `${value}%`}
+						/>
 						<Tooltip
 							content={({ active, payload }) => {
 								if (active && payload && payload.length) {
-									const date = new Date(payload[0].payload.date);
-									const formattedDate = date.toLocaleDateString('en-US', {
-										day: 'numeric',
-										month: 'short',
-									});
-
 									return (
 										<div className='rounded-lg border bg-background p-2 shadow-sm'>
-											<div className='grid grid-cols-2 gap-2'>
-												<div className='flex flex-col'>
-													<span className='text-[0.70rem] uppercase text-muted-foreground'>
-														Date
-													</span>
-													<span className='font-bold text-xs'>
-														{formattedDate}
-													</span>
-												</div>
-												<div className='flex flex-col'>
-													<span className='text-[0.70rem] uppercase text-muted-foreground'>
-														Engagement
-													</span>
-													<span className='font-bold text-xs'>
-														{payload[0].value}
-													</span>
-												</div>
+											<div className='flex flex-col gap-1'>
+												<span className='font-bold text-xs'>
+													{payload[0].value}% engagement
+												</span>
 											</div>
 										</div>
 									);
@@ -92,6 +75,9 @@ export function EngagementChart({ data }: EngagementChartProps) {
 							stroke='#000000'
 							fillOpacity={1}
 							fill='url(#colorEngagement)'
+							isAnimationActive={true}
+							animationDuration={500}
+							animationEasing='ease-out'
 						/>
 					</AreaChart>
 				</ResponsiveContainer>

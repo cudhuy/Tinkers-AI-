@@ -21,8 +21,9 @@ type AgendaData = {
 
 type AgendaFormData = {
 	title: string;
+	purpose: string;
+	context?: string | null;
 	meeting_duration: string;
-	description?: string | null;
 	type_of_meeting?: string | null;
 	participants?: string[] | null;
 };

@@ -32,14 +32,13 @@ const formSchema = z.object({
 	title: z.string().min(2, {
 		message: 'Title must be at least 2 characters.',
 	}),
-
-	description: z.string().optional(),
-
-	time: z.string().nonempty('Please select meeting duration'),
-
+	purpose: z.string().min(1, { message: 'Purpose is required.' }),
+	context: z.string().optional(),
+	time: z.string().nonempty({ message: 'Please select meeting duration' }),
 	type_of_meeting: z
-		.enum(['Sales Meeting', 'Internal Meeting'])
-		.refine((val) => !!val, { message: 'Please select a valid meeting type' })
+		.enum(['Sales Meeting', 'Internal Meeting'], {
+			message: 'Please select a valid meeting type.',
+		})
 		.optional(),
 	// Participants will be handled separately
 });
@@ -59,7 +58,8 @@ export default function FormPage() {
 		resolver: zodResolver(formSchema),
 		defaultValues: {
 			title: '',
-			description: '',
+			purpose: '',
+			context: '',
 			time: '30',
 			type_of_meeting: undefined,
 		},
@@ -103,8 +103,9 @@ export default function FormPage() {
 
 			const payload = {
 				title: values.title,
+				purpose: values.purpose,
+				context: values.context || null,
 				meeting_duration: meetingDuration,
-				description: values.description || null,
 				type_of_meeting: values.type_of_meeting || null,
 				participants: participants.length > 0 ? participants : null,
 			};
@@ -123,8 +124,8 @@ export default function FormPage() {
 			// Remove the previous agenda hash to force a chat reset
 			localStorage.removeItem('agendaHash');
 
-			// Redirect to agenda page
-			router.push('/agenda');
+			// Redirect to agenda page with title as query parameter
+			router.push(`/agenda?title=${encodeURIComponent(values.title)}`);
 		} catch (error) {
 			console.error('Error submitting form:', error);
 			alert('Failed to submit form. Please try again.');
@@ -150,7 +151,9 @@ export default function FormPage() {
 							name='title'
 							render={({ field }) => (
 								<FormItem>
-									<FormLabel>Meeting Title</FormLabel>
+									<FormLabel>
+										Meeting Title<span className='text-red-500'>*</span>
+									</FormLabel>
 									<FormControl>
 										<Input placeholder='Enter meeting title' {...field} />
 									</FormControl>
@@ -164,20 +167,37 @@ export default function FormPage() {
 
 						<FormField
 							control={form.control}
-							name='description'
+							name='purpose'
 							render={({ field }) => (
 								<FormItem>
-									<FormLabel>Description (Optional)</FormLabel>
+									<FormLabel>
+										Purpose<span className='text-red-500'>*</span>
+									</FormLabel>
 									<FormControl>
 										<Textarea
-											placeholder='Enter meeting description and goals'
+											placeholder='Why are you having this meeting? What do you want to achieve?'
+											className='min-h-[60px] resize-none'
+											{...field}
+										/>
+									</FormControl>
+									<FormMessage />
+								</FormItem>
+							)}
+						/>
+
+						<FormField
+							control={form.control}
+							name='context'
+							render={({ field }) => (
+								<FormItem>
+									<FormLabel>Context (Optional)</FormLabel>
+									<FormControl>
+										<Textarea
+											placeholder='Add any relevant background information or context for this meeting.'
 											className='min-h-[100px] resize-none'
 											{...field}
 										/>
 									</FormControl>
-									<FormDescription>
-										Describe the purpose and goals of this meeting.
-									</FormDescription>
 									<FormMessage />
 								</FormItem>
 							)}
@@ -230,9 +250,6 @@ export default function FormPage() {
 									</p>
 								)}
 							</div>
-							<FormDescription className='mt-2'>
-								Add the people who will attend the meeting
-							</FormDescription>
 						</div>
 
 						<FormField
@@ -260,9 +277,6 @@ export default function FormPage() {
 											<SelectItem value='180'>3 hours</SelectItem>
 										</SelectContent>
 									</Select>
-									<FormDescription>
-										Choose the expected duration of the meeting.
-									</FormDescription>
 									<FormMessage />
 								</FormItem>
 							)}
@@ -292,9 +306,6 @@ export default function FormPage() {
 											</SelectItem>
 										</SelectContent>
 									</Select>
-									<FormDescription>
-										Choose the type of meeting you're planning.
-									</FormDescription>
 									<FormMessage />
 								</FormItem>
 							)}

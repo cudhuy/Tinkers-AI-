@@ -38,6 +38,12 @@ type AgendaData = {
 	participants_insights: ParticipantInsight[];
 };
 
+// Define type for WebSocket engagement data
+type EngagementData = {
+	words_count: number;
+	user_type: 'host' | 'guest';
+};
+
 // Thêm interface cho props của ChatBot
 interface ChatBotProps {
 	onMessagesChange?: Dispatch<SetStateAction<Message[]>>;
@@ -54,6 +60,66 @@ export default function ChatBot(props: ChatBotProps) {
 		null,
 	);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
+	
+	// WebSocket connection reference
+	const wsRef = useRef<WebSocket | null>(null);
+
+	// Setup WebSocket connection for engagement data
+	useEffect(() => {
+		const connectWebSocket = () => {
+			if (wsRef.current?.readyState === WebSocket.OPEN) {
+				return;
+			}
+
+			// Create new WebSocket connection
+			const ws = new WebSocket('ws://localhost:8000/api/engagement');
+
+			ws.onopen = () => {
+				console.log('Engagement WebSocket connection established');
+			};
+
+			ws.onmessage = (event) => {
+				try {
+					const data = JSON.parse(event.data) as EngagementData;
+					if (data.words_count && data.user_type) {
+						// Dispatch custom event to share engagement data with other components
+						window.dispatchEvent(
+							new CustomEvent('engagementUpdate', {
+								detail: {
+									words_count: data.words_count,
+									user_type: data.user_type,
+								},
+							}),
+						);
+					}
+				} catch (error) {
+					console.error('Error parsing WebSocket message:', error);
+				}
+			};
+
+			ws.onerror = (error) => {
+				console.error('WebSocket error:', error);
+			};
+
+			ws.onclose = () => {
+				console.log('WebSocket connection closed');
+				// Attempt to reconnect after 3 seconds
+				setTimeout(connectWebSocket, 3000);
+			};
+
+			wsRef.current = ws;
+		};
+
+		// Connect to WebSocket
+		connectWebSocket();
+
+		// Cleanup on component unmount
+		return () => {
+			if (wsRef.current) {
+				wsRef.current.close();
+			}
+		};
+	}, []);
 
 	// Generate a simple hash for agenda data to detect changes
 	const getAgendaHash = (data: AgendaData | null): string => {
