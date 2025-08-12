@@ -8,6 +8,8 @@ import websockets
 from dotenv import load_dotenv
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from routes.conversation.agent import AgendaAgent, EngagementAgent
+
 load_dotenv()
 
 conversation_router = APIRouter(prefix="/conversation", tags=["conversation"])
@@ -16,6 +18,14 @@ conversation_router = APIRouter(prefix="/conversation", tags=["conversation"])
 @conversation_router.websocket("/transcribe")
 async def transcribe_audio(websocket: WebSocket):
     await websocket.accept()
+
+    agents = [
+        AgendaAgent(websocket),
+        EngagementAgent(websocket),
+    ]
+
+    for agent in agents:
+        asyncio.create_task(agent.process_transcripts())
 
     openai_api_key = os.environ.get("OPENAI_API_KEY")
     if not openai_api_key:
@@ -38,7 +48,7 @@ async def transcribe_audio(websocket: WebSocket):
             openai_url, additional_headers=headers
         ) as openai_ws:
             print("Connected to OpenAI WebSocket")
-            await handle_connection(websocket, openai_ws)
+            await handle_connection(websocket, openai_ws, agents)
 
     except Exception as e:
         error_msg = f"Error: {str(e)}"
@@ -53,7 +63,7 @@ async def transcribe_audio(websocket: WebSocket):
             await websocket.close()
 
 
-async def handle_connection(websocket, openai_ws):
+async def handle_connection(websocket, openai_ws, agents):
     """Handle the connection between client and OpenAI."""
 
     # Send session configuration to OpenAI
@@ -62,7 +72,7 @@ async def handle_connection(websocket, openai_ws):
         "session": {
             "input_audio_transcription": {
                 "model": "gpt-4o-mini-transcribe",  # Use the newer transcription model
-                "language": "pl",
+                "language": "en",
             },
             "turn_detection": {
                 "type": "semantic_vad",
@@ -86,7 +96,6 @@ async def handle_connection(websocket, openai_ws):
     # Task to receive messages from OpenAI and forward to client
     async def receive_from_openai():
         try:
-            current_transcript = ""
             while True:
                 message = await openai_ws.recv()
 
@@ -127,15 +136,14 @@ async def handle_connection(websocket, openai_ws):
                         == "conversation.item.input_audio_transcription.completed"
                     ):
                         # Final transcription
-                        print(f"Final transcription: {data}")
+                        # print(f"Final transcription: {data}")
                         final_transcript = data.get("transcript", "")
                         if final_transcript:
-                            current_transcript = (
-                                final_transcript  # Reset with the complete transcript
-                            )
-                            await websocket.send_json(
-                                {"text": final_transcript, "is_final": True}
-                            )
+                            for agent in agents:
+                                await agent.add_transcript(final_transcript)
+                            # await websocket.send_json(
+                            #     {"text": final_transcript, "is_final": True}
+                            # )
 
                     elif event_type == "input_audio_buffer.speech_stopped":
                         print("Speech stopped detected")
@@ -171,34 +179,100 @@ async def handle_connection(websocket, openai_ws):
     # Listen for audio data from client and forward to OpenAI
     try:
         while True:
-            # Receive binary audio data from client
-            data = await websocket.receive_bytes()
             try:
-                # For the transcription API, audio data must be sent as base64 in a JSON message
-                # Convert binary audio data to base64
-                base64_audio = base64.b64encode(data).decode("utf-8")
+                # Try to receive different types of messages
+                message_type = None
+                message_data = None
 
-                # Format audio data for OpenAI transcription API
-                audio_message = {
-                    "type": "input_audio_buffer.append",
-                    "audio": base64_audio,
-                }
+                # First check if there's a text message (for agenda info)
+                try:
+                    message_data = await asyncio.wait_for(
+                        websocket.receive_text(), timeout=0.01
+                    )
+                    message_type = "text"
+                except (asyncio.TimeoutError, KeyError):
+                    # No text message available, try binary
+                    pass
 
-                # Send JSON audio message to OpenAI
-                await openai_ws.send(json.dumps(audio_message))
+                # If no text message, try binary
+                if message_type is None:
+                    try:
+                        message_data = await websocket.receive_bytes()
+                        message_type = "binary"
+                    except Exception as e:
+                        # If this fails too, it might be a connection issue
+                        print(f"Error receiving message: {e}")
+                        await asyncio.sleep(0.01)
+                        continue
+
+                # Process the message based on its type
+                if message_type == "text":
+                    try:
+                        json_data = json.loads(message_data)
+
+                        # Handle agenda information
+                        if (
+                            json_data.get("type") == "agenda_info"
+                            and "agenda" in json_data
+                        ):
+                            print("Received agenda information")
+                            for agent in agents:
+                                await agent.add_agenda_info(json_data["agenda"])
+                            await websocket.send_json(
+                                {"status": "Agenda information received"}
+                            )
+                    except json.JSONDecodeError:
+                        print(f"Received non-JSON text: {message_data}")
+
+                elif message_type == "binary":
+                    # Process binary audio data
+                    # For the transcription API, audio data must be sent as base64 in a JSON message
+                    # Convert binary audio data to base64
+                    base64_audio = base64.b64encode(message_data).decode("utf-8")
+
+                    # Format audio data for OpenAI transcription API
+                    audio_message = {
+                        "type": "input_audio_buffer.append",
+                        "audio": base64_audio,
+                    }
+
+                    # Send JSON audio message to OpenAI
+                    await openai_ws.send(json.dumps(audio_message))
 
                 # Add a small yield to the event loop to allow other tasks to run
-                # This can help ensure the receive_from_openai task gets CPU time
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.01)
 
             except websockets.ConnectionClosedOK:
-                # Connection closed normally, no need to report as error
                 print("OpenAI connection closed normally")
                 break
-            except Exception as e:
-                print(f"Error sending data to OpenAI: {e}")
-                await websocket.send_json({"error": f"Error sending data: {str(e)}"})
+            except WebSocketDisconnect:
+                print("Client disconnected")
                 break
+            except RuntimeError as e:
+                # Check for the specific disconnect error
+                if (
+                    'Cannot call "receive" once a disconnect message has been received.'
+                    in str(e)
+                ):
+                    print("WebSocket already disconnected, stopping receive loop.")
+                    break
+                else:
+                    print(f"RuntimeError: {e}")
+                    # Only try to send error if still connected
+                    if websocket.client_state.name == "CONNECTED":
+                        await websocket.send_json({"error": str(e)})
+                    break
+            except Exception as e:
+                import traceback
+
+                traceback.print_exc()
+                print(f"Error processing message: {e}")
+                # Only try to send error if still connected
+                if websocket.client_state.name == "CONNECTED":
+                    await websocket.send_json(
+                        {"error": f"Error processing message: {str(e)}"}
+                    )
+                continue
     except WebSocketDisconnect:
         # Client disconnected
         print("Client disconnected")

@@ -6,7 +6,8 @@ from pydantic import BaseModel
 
 class AgendaForm(BaseModel):
     title: str
-    description: str | None = None
+    purpose: str
+    context: str | None = None
     meeting_duration: datetime.timedelta = datetime.timedelta(minutes=30)
     participants: list[str] | None = None
     type_of_meeting: Literal["Sales Meeting", "Internal Meeting"] | None = None
@@ -28,6 +29,7 @@ class Agenda(BaseModel):
     time_plan: list[TimePlanPoint]
     preparation_tips: list[str]
     participants_insights: list[ParticipantInsight]
+    title: str
 
 
 class Message(BaseModel):
@@ -38,3 +40,7 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     agenda: Agenda
     messages: list[Message] = []
+
+class IsAgendaTopic(BaseModel):
+    is_about_agenda: bool
+    reasoning: str

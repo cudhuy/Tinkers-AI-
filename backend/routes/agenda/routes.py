@@ -1,8 +1,17 @@
 from core.openai import client
 from fastapi import APIRouter, Body
-from routes.agenda.model import Agenda, AgendaForm, ChatRequest
+from routes.agenda.model import Agenda, AgendaForm, ChatRequest, IsAgendaTopic
 from routes.agenda.prompts import AGENDA_CREATION_PROMPT, PROFILER_PROMPT
-from agents import Agent, Runner, function_tool, WebSearchTool
+from agents import (
+    Agent,
+    GuardrailFunctionOutput,
+    InputGuardrailTripwireTriggered,
+    WebSearchTool,
+    RunContextWrapper,
+    Runner,
+    TResponseInputItem,
+    input_guardrail,
+)
 
 
 agenda_router = APIRouter(prefix="/agenda", tags=["agenda"])
@@ -82,19 +91,39 @@ async def chat_with_agenda(chat_request: ChatRequest):
     for message in chat_request.messages:
         user_messages.append({"role": message.role, "content": message.content})
 
+    guardrail_agent = Agent(
+        name="Guardrail check",
+        instructions="Check if the user is asking specific question about given agenda.",
+        output_type=IsAgendaTopic,
+    )
+
+    @input_guardrail
+    async def agenda_guardrail(
+        ctx: RunContextWrapper[None],
+        agent: Agent,
+        input: str | list[TResponseInputItem],
+    ) -> GuardrailFunctionOutput:
+        result = await Runner.run(guardrail_agent, input, context=ctx.context)
+        return GuardrailFunctionOutput(
+            output_info=result.final_output,
+            tripwire_triggered=not result.final_output.is_about_agenda,
+        )
+
     agenda_agent = Agent(
         name="AgendaCreator",
         model="gpt-4.1-mini",
         instructions=AGENDA_CREATION_PROMPT,
         tools=[],
         output_type=Agenda,
+        input_guardrails=[agenda_guardrail],
     )
+    try:
+        result = await Runner.run(
+            starting_agent=agenda_agent,
+            input=user_messages,
+        )
+        response = result.final_output
+        return response
 
-    result = await Runner.run(
-        starting_agent=agenda_agent,
-        input=user_messages,
-    )
-
-    response = result.final_output
-
-    return response
+    except InputGuardrailTripwireTriggered:
+        return agenda_json

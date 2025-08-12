@@ -1,50 +1,19 @@
 import asyncio
-from dotenv import load_dotenv
-from pydantic import BaseModel
 import json
 
-load_dotenv()
 from agents import (
     Agent,
     GuardrailFunctionOutput,
+    RunContextWrapper,
     Runner,
     function_tool,
-    RunContextWrapper,
 )
+from dotenv import load_dotenv
+from pydantic import BaseModel
+
 from websocket_manager import WebSocketManager
 
-
-class HomeworkOutput(BaseModel):
-    is_homework: bool
-    reasoning: str
-
-
-guardrail_agent = Agent(
-    name="Guardrail check",
-    instructions="Check if the user is asking about homework.",
-    output_type=HomeworkOutput,
-)
-
-math_tutor_agent = Agent(
-    name="Math Tutor",
-    handoff_description="Specialist agent for math questions",
-    instructions="You provide help with math problems. Explain your reasoning at each step and include examples",
-)
-
-history_tutor_agent = Agent(
-    name="History Tutor",
-    handoff_description="Specialist agent for historical questions",
-    instructions="You provide assistance with historical queries. Explain important events and context clearly.",
-)
-
-
-async def homework_guardrail(ctx, agent, input_data):
-    result = await Runner.run(guardrail_agent, input_data, context=ctx.context)
-    final_output = result.final_output_as(HomeworkOutput)
-    return GuardrailFunctionOutput(
-        output_info=final_output,
-        tripwire_triggered=not final_output.is_homework,
-    )
+load_dotenv()
 
 
 # Define the function tool for sending messages via WebSocket
@@ -58,7 +27,6 @@ async def send_via_websocket(ctx: RunContextWrapper, message: str) -> str:
 triage_agent = Agent(
     name="Triage Agent",
     instructions="You determine which agent to use based on the user's homework question. Use the WebSocket tool to send messages when instructed.",
-    handoffs=[history_tutor_agent, math_tutor_agent],
     tools=[send_via_websocket],
     # input_guardrails=[
     #     InputGuardrail(guardrail_function=homework_guardrail),
