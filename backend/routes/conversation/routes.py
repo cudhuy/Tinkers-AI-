@@ -8,7 +8,12 @@ import websockets
 from dotenv import load_dotenv
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from routes.conversation.agent import AgendaAgent, EngagementAgent
+from routes.conversation.agent import (
+    AgendaAgent,
+    ConversationTipsAgent,
+    EngagementAgent,
+    OfftopicAgent,
+)
 
 load_dotenv()
 
@@ -22,6 +27,8 @@ async def transcribe_audio(websocket: WebSocket):
     agents = [
         AgendaAgent(websocket),
         EngagementAgent(websocket),
+        OfftopicAgent(websocket),
+        ConversationTipsAgent(websocket),
     ]
 
     for agent in agents:

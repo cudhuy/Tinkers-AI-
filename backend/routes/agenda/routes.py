@@ -1,18 +1,23 @@
-from core.openai import client
-from fastapi import APIRouter, Body
-from routes.agenda.model import Agenda, AgendaForm, ChatRequest, IsAgendaTopic
-from routes.agenda.prompts import AGENDA_CREATION_PROMPT, PROFILER_PROMPT
+import json
+
 from agents import (
     Agent,
     GuardrailFunctionOutput,
     InputGuardrailTripwireTriggered,
-    WebSearchTool,
     RunContextWrapper,
     Runner,
     TResponseInputItem,
+    WebSearchTool,
     input_guardrail,
 )
-
+from fastapi import APIRouter, Body
+from routes.agenda.model import (
+    Agenda,
+    AgendaForm,
+    ChatRequest,
+    IsAgendaTopic,
+)
+from routes.agenda.prompts import AGENDA_CREATION_PROMPT, PROFILER_PROMPT
 
 agenda_router = APIRouter(prefix="/agenda", tags=["agenda"])
 
@@ -34,8 +39,11 @@ async def upload_agenda(
         }
     ),
 ):
+    # Use the to_prompt method to get the JSON with attachments processed
+    user_message = agenda.to_prompt()
+
     messages = [
-        {"role": "user", "content": agenda.model_dump_json()},
+        {"role": "user", "content": user_message},
     ]
 
     profiler_agent = Agent(
@@ -66,12 +74,6 @@ async def upload_agenda(
         starting_agent=agenda_agent,
         input=messages,
     )
-
-    # for item in result.new_items:
-    #     raw_item = item.raw_item
-    #     if isinstance(raw_item, dict) and 'type' in raw_item and raw_item['type'] == 'function_call_output':
-    #         if 'output' in raw_item:
-    #             print("RAW ITEM OUTPUT", raw_item['output'])
     response = result.final_output
 
     return response
@@ -82,7 +84,12 @@ async def chat_with_agenda(chat_request: ChatRequest):
     user_messages = []
 
     if chat_request.agenda:
-        agenda_json = chat_request.agenda.model_dump_json()
+        # Serialize agenda to a dictionary first
+        agenda_dict = chat_request.agenda.model_dump()
+
+        # Convert to JSON
+        agenda_json = json.dumps(agenda_dict)
+
         user_messages.append(
             {"role": "user", "content": f"Here is the current agenda: {agenda_json}"}
         )
@@ -93,7 +100,7 @@ async def chat_with_agenda(chat_request: ChatRequest):
 
     guardrail_agent = Agent(
         name="Guardrail check",
-        instructions="Check if the user is asking specific question about given agenda.",
+        instructions="Check if the user is asking specific question about agenda. It can be question or requestion for change or even conversation about it.",
         output_type=IsAgendaTopic,
     )
 
@@ -125,5 +132,5 @@ async def chat_with_agenda(chat_request: ChatRequest):
         response = result.final_output
         return response
 
-    except InputGuardrailTripwireTriggered:
-        return agenda_json
+    except InputGuardrailTripwireTriggered as e:
+        return chat_request.agenda

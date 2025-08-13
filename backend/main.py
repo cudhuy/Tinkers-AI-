@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routes.main import api_router
 
 app = FastAPI(
-    title="Meeting Facilitator API",
+    title="Meeting Cue API",
 )
 
 # Configure CORS middleware with more permissive settings
