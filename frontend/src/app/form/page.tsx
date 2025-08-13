@@ -25,7 +25,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { agendaAPI } from '@/lib/api';
-import { X } from 'lucide-react';
+import { X, Upload, FileText } from 'lucide-react';
 
 // Define the form schema using zod
 const formSchema = z.object({
@@ -40,11 +40,15 @@ const formSchema = z.object({
 			message: 'Please select a valid meeting type.',
 		})
 		.optional(),
-	// Participants will be handled separately
+	// Participants and attachments will be handled separately
 });
 
-// Define the form type
-type FormValues = z.infer<typeof formSchema>;
+// Define the attachment type
+type Attachment = {
+	name: string;
+	content: string;
+	type: string;
+};
 
 export default function FormPage() {
 	const router = useRouter();
@@ -52,6 +56,8 @@ export default function FormPage() {
 	const [participants, setParticipants] = useState<string[]>([]);
 	const [newParticipant, setNewParticipant] = useState('');
 	const [participantsError, setParticipantsError] = useState('');
+	const [attachments, setAttachments] = useState<Attachment[]>([]);
+	const [fileError, setFileError] = useState('');
 
 	// Define the form
 	const form = useForm<z.infer<typeof formSchema>>({
@@ -89,6 +95,72 @@ export default function FormPage() {
 		}
 	};
 
+	// File handling functions
+	const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const files = e.target.files;
+		if (!files || files.length === 0) return;
+
+		setFileError('');
+
+		for (let i = 0; i < files.length; i++) {
+			const file = files[i];
+
+			// Check file type (allow only text files)
+			if (
+				!file.type.includes('text') &&
+				!file.name.endsWith('.txt') &&
+				!file.name.endsWith('.md')
+			) {
+				setFileError('Only text files (TXT, MD) are allowed');
+				continue;
+			}
+
+			// Check file size (max 1MB)
+			if (file.size > 1024 * 1024) {
+				setFileError('File size should be less than 1MB');
+				continue;
+			}
+
+			try {
+				const content = await readFileAsText(file);
+				const newAttachment: Attachment = {
+					name: file.name,
+					content,
+					type: file.type || 'text/plain',
+				};
+
+				setAttachments((prev) => [...prev, newAttachment]);
+			} catch (error) {
+				console.error('Error reading file:', error);
+				setFileError('Error reading file. Please try again.');
+			}
+		}
+
+		// Reset the file input
+		e.target.value = '';
+	};
+
+	const readFileAsText = (file: File): Promise<string> => {
+		return new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = (event) => {
+				if (event.target?.result) {
+					resolve(event.target.result as string);
+				} else {
+					reject(new Error('Failed to read file'));
+				}
+			};
+			reader.onerror = () => reject(reader.error);
+			reader.readAsText(file);
+		});
+	};
+
+	const removeAttachment = (index: number) => {
+		const updatedAttachments = [...attachments];
+		updatedAttachments.splice(index, 1);
+		setAttachments(updatedAttachments);
+	};
+
 	// Submit handler
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsSubmitting(true);
@@ -108,6 +180,7 @@ export default function FormPage() {
 				meeting_duration: meetingDuration,
 				type_of_meeting: values.type_of_meeting || null,
 				participants: participants.length > 0 ? participants : null,
+				attachments: attachments.length > 0 ? attachments : null,
 			};
 
 			console.log('Sending payload:', payload);
@@ -116,6 +189,10 @@ export default function FormPage() {
 			const data = await agendaAPI.createAgenda(payload);
 
 			// Store the agenda data in localStorage to access it on the agenda page
+			// Add attachments to the agenda data before storing
+			if (attachments.length > 0) {
+				data.attachments = attachments;
+			}
 			localStorage.setItem('agendaData', JSON.stringify(data));
 
 			// Clear any existing chat messages for the previous agenda
@@ -249,6 +326,68 @@ export default function FormPage() {
 										No participants added yet
 									</p>
 								)}
+							</div>
+						</div>
+
+						{/* Attachments section */}
+						<div>
+							<FormLabel>Attachments (Optional)</FormLabel>
+							<div className='mt-2 mb-2'>
+								<div className='flex items-center'>
+									<label className='flex items-center w-full p-2 border border-gray-300 rounded cursor-pointer hover:bg-gray-50'>
+										<Upload size={18} className='mr-2 text-gray-500' />
+										<span className='text-sm text-gray-600'>
+											Upload text files (TXT, MD)
+										</span>
+										<input
+											type='file'
+											className='hidden'
+											accept='.txt,.md,text/plain,text/markdown'
+											onChange={handleFileChange}
+											multiple
+										/>
+									</label>
+								</div>
+
+								{fileError && (
+									<p className='text-sm font-medium text-red-500 mt-1'>
+										{fileError}
+									</p>
+								)}
+
+								<div className='mt-2'>
+									{attachments.length > 0 ? (
+										<div className='flex flex-col gap-2'>
+											{attachments.map((file, index) => (
+												<div
+													key={index}
+													className='bg-gray-100 px-3 py-2 rounded flex items-center justify-between text-sm'
+												>
+													<div className='flex items-center'>
+														<FileText
+															size={14}
+															className='mr-2 text-gray-600'
+														/>
+														<span className='truncate max-w-[200px]'>
+															{file.name}
+														</span>
+													</div>
+													<button
+														type='button'
+														onClick={() => removeAttachment(index)}
+														className='text-gray-500 hover:text-gray-700'
+													>
+														<X size={14} />
+													</button>
+												</div>
+											))}
+										</div>
+									) : (
+										<p className='text-sm text-gray-500'>
+											No files attached yet
+										</p>
+									)}
+								</div>
 							</div>
 						</div>
 

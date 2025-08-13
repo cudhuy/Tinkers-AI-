@@ -10,6 +10,7 @@ import React, {
 import { nanoid } from 'nanoid';
 import { cn } from '@/lib/utils';
 import { agendaAPI } from '@/lib/api';
+import { toast } from 'sonner';
 
 export type Message = {
 	id: string;
@@ -31,124 +32,95 @@ type ParticipantInsight = {
 	insight: string;
 };
 
+// Reuse the attachment type definition
+type Attachment = {
+	name: string;
+	content: string;
+	type: string;
+};
+
 type AgendaData = {
 	checklist: string[];
 	time_plan: TimePlanPoint[];
 	preparation_tips: string[];
 	participants_insights: ParticipantInsight[];
+	attachments?: Attachment[] | null;
 };
 
-// Define type for WebSocket engagement data
-type EngagementData = {
-	words_count: number;
-	user_type: 'host' | 'guest';
-};
-
-// Thêm interface cho props của ChatBot
+// Interface cho props của ChatBot
 interface ChatBotProps {
 	onMessagesChange?: Dispatch<SetStateAction<Message[]>>;
 }
 
 export default function ChatBot(props: ChatBotProps) {
-	const { onMessagesChange } = props; // Props để cập nhật state ở parent component
+	const { onMessagesChange } = props;
 
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [input, setInput] = useState('');
 	const [loading, setLoading] = useState(false);
 	const [agendaData, setAgendaData] = useState<AgendaData | null>(null);
-	const [previousAgendaHash, setPreviousAgendaHash] = useState<string | null>(
-		null,
-	);
+	const [previousAgendaData, setPreviousAgendaData] =
+		useState<AgendaData | null>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
-	
-	// WebSocket connection reference
-	const wsRef = useRef<WebSocket | null>(null);
 
-	// Setup WebSocket connection for engagement data
-	useEffect(() => {
-		const connectWebSocket = () => {
-			if (wsRef.current?.readyState === WebSocket.OPEN) {
-				return;
-			}
+	// Check if agenda data has changed by comparing key fields
+	const hasAgendaChanged = (
+		oldData: AgendaData | null,
+		newData: AgendaData | null,
+	): boolean => {
+		if (!oldData && !newData) return false;
+		if (!oldData || !newData) return true;
 
-			// Create new WebSocket connection
-			const ws = new WebSocket('ws://localhost:8000/api/engagement');
+		// Compare checklist, time_plan and preparation_tips
+		const checklistChanged =
+			JSON.stringify(oldData.checklist) !== JSON.stringify(newData.checklist);
+		const timePlanChanged =
+			JSON.stringify(oldData.time_plan) !== JSON.stringify(newData.time_plan);
+		const tipsChanged =
+			JSON.stringify(oldData.preparation_tips) !==
+			JSON.stringify(newData.preparation_tips);
+		const insightsChanged =
+			JSON.stringify(oldData.participants_insights) !==
+			JSON.stringify(newData.participants_insights);
 
-			ws.onopen = () => {
-				console.log('Engagement WebSocket connection established');
-			};
-
-			ws.onmessage = (event) => {
-				try {
-					const data = JSON.parse(event.data) as EngagementData;
-					if (data.words_count && data.user_type) {
-						// Dispatch custom event to share engagement data with other components
-						window.dispatchEvent(
-							new CustomEvent('engagementUpdate', {
-								detail: {
-									words_count: data.words_count,
-									user_type: data.user_type,
-								},
-							}),
-						);
-					}
-				} catch (error) {
-					console.error('Error parsing WebSocket message:', error);
-				}
-			};
-
-			ws.onerror = (error) => {
-				console.error('WebSocket error:', error);
-			};
-
-			ws.onclose = () => {
-				console.log('WebSocket connection closed');
-				// Attempt to reconnect after 3 seconds
-				setTimeout(connectWebSocket, 3000);
-			};
-
-			wsRef.current = ws;
-		};
-
-		// Connect to WebSocket
-		connectWebSocket();
-
-		// Cleanup on component unmount
-		return () => {
-			if (wsRef.current) {
-				wsRef.current.close();
-			}
-		};
-	}, []);
-
-	// Generate a simple hash for agenda data to detect changes
-	const getAgendaHash = (data: AgendaData | null): string => {
-		if (!data) return '';
-		// Create a simple hash from the first item of each section
-		return [
-			data.checklist[0] || '',
-			data.time_plan[0]?.content || '',
-			data.preparation_tips[0] || '',
-		].join('|');
+		return (
+			checklistChanged || timePlanChanged || tipsChanged || insightsChanged
+		);
 	};
 
 	// Fetch initial agenda data and chat history from localStorage on component mount
 	useEffect(() => {
 		const storedData = localStorage.getItem('agendaData');
 		const storedMessages = localStorage.getItem('chatMessages');
+		const storedAttachments = localStorage.getItem('attachments');
+
+		let parsedData: AgendaData | null = null;
 
 		if (storedData) {
 			try {
-				const data = JSON.parse(storedData) as AgendaData;
-				setAgendaData(data);
-				const currentHash = getAgendaHash(data);
-				setPreviousAgendaHash(currentHash);
+				parsedData = JSON.parse(storedData) as AgendaData;
 
-				// Only load saved messages if they exist and we have agenda hash saved
-				if (
-					storedMessages &&
-					localStorage.getItem('agendaHash') === currentHash
-				) {
+				// If we have attachments in separate localStorage, add them to agenda data
+				if (storedAttachments) {
+					try {
+						const parsedAttachments = JSON.parse(
+							storedAttachments,
+						) as Attachment[];
+						parsedData.attachments = parsedAttachments;
+
+						// Update localStorage with the combined data
+						localStorage.setItem('agendaData', JSON.stringify(parsedData));
+						localStorage.removeItem('attachments'); // We no longer need this separate item
+					} catch (error) {
+						console.error('Error parsing attachments:', error);
+					}
+				}
+
+				setAgendaData(parsedData);
+				setPreviousAgendaData(parsedData);
+
+				// Only load saved messages if they exist
+				if (storedMessages) {
 					try {
 						const parsedMessages = JSON.parse(storedMessages) as Message[];
 						setMessages(parsedMessages);
@@ -157,7 +129,7 @@ export default function ChatBot(props: ChatBotProps) {
 						addInitialMessage();
 					}
 				} else {
-					// If hash doesn't match or no messages, add initial message
+					// No messages, add initial message
 					addInitialMessage();
 				}
 			} catch (error) {
@@ -170,12 +142,32 @@ export default function ChatBot(props: ChatBotProps) {
 				{
 					id: nanoid(),
 					content:
-						"Hello! I'm your virtual facilitator assistant. Please create an agenda first.",
+						"Hello! I'm Cue, your virtual meeting assistant. Please create an agenda first.",
 					role: 'assistant',
 				},
 			]);
 		}
 	}, []);
+
+	// Update previousAgendaData when agendaData changes
+	useEffect(() => {
+		if (agendaData && previousAgendaData) {
+			// If the agenda changed, add an informational message instead of clearing chat history
+			if (hasAgendaChanged(previousAgendaData, agendaData)) {
+				// Add notification message about agenda update
+				const updateMessage = {
+					id: nanoid(),
+					content:
+						'The agenda has been updated. You can continue the conversation.',
+					role: 'assistant' as const,
+				};
+				setMessages((prev) => [...prev, updateMessage]);
+			}
+
+			// Update the previous agenda data
+			setPreviousAgendaData(agendaData);
+		}
+	}, [agendaData, previousAgendaData]);
 
 	// Function to add initial welcome message
 	const addInitialMessage = () => {
@@ -187,23 +179,6 @@ export default function ChatBot(props: ChatBotProps) {
 		};
 		setMessages([initialMessage]);
 	};
-
-	// Update previousAgendaHash when agendaData changes
-	useEffect(() => {
-		if (agendaData) {
-			const newHash = getAgendaHash(agendaData);
-
-			// If the hash changed (new agenda), clear chat history
-			if (previousAgendaHash && newHash !== previousAgendaHash) {
-				// Clear chat history and add initial message
-				addInitialMessage();
-			}
-
-			// Update the hash in state and localStorage
-			setPreviousAgendaHash(newHash);
-			localStorage.setItem('agendaHash', newHash);
-		}
-	}, [agendaData, previousAgendaHash]);
 
 	// Save messages to localStorage whenever they change
 	useEffect(() => {
@@ -242,31 +217,69 @@ export default function ChatBot(props: ChatBotProps) {
 				role: 'user',
 			});
 
-			// Use the API utility with conversation history and current agenda
+			// Use the API utility with conversation history and current agenda (which now includes attachments)
 			const data = await agendaAPI.chatWithAgenda(
 				input,
 				conversationHistory,
 				agendaData,
 			);
 
-			// Update agendaData state to trigger the useEffect that checks for changes
+			// Check if the agenda data was updated
+			const isAgendaUpdated = hasAgendaChanged(agendaData, data);
+
+			// Save the current agenda data for later comparison
+			const previousData = agendaData;
+
+			// Update agendaData state
 			setAgendaData(data);
 
 			// Update localStorage with the new agenda data
 			localStorage.setItem('agendaData', JSON.stringify(data));
 
-			// Add assistant message
-			const botMessage: Message = {
-				id: nanoid(),
-				content:
-					"I've updated the agenda based on your request. The changes have been applied.",
-				role: 'assistant',
-			};
+			// Determine if the guardrail tripwire was triggered (no agenda changes)
+			const isTripwireTriggered =
+				!isAgendaUpdated && JSON.stringify(data) === JSON.stringify(agendaData);
+
+			// Add assistant message based on whether the agenda was updated or the tripwire was triggered
+			let botMessage: Message;
+
+			if (isTripwireTriggered) {
+				// Show toast notification for tripwire
+				toast.info("Your question isn't about the agenda", {
+					description: 'I can only help with agenda-related questions.',
+					duration: 4000,
+				});
+
+				botMessage = {
+					id: nanoid(),
+					content:
+						"I'm sorry, but I can only assist with questions or changes related to your agenda. If you'd like to discuss something else, please use a different channel or be more specific about how it relates to your agenda.",
+					role: 'assistant',
+				};
+			} else if (isAgendaUpdated) {
+				botMessage = {
+					id: nanoid(),
+					content:
+						"I've updated the agenda based on your request. The changes have been applied.",
+					role: 'assistant',
+				};
+			} else {
+				botMessage = {
+					id: nanoid(),
+					content:
+						"I've reviewed your agenda. No changes were needed based on your request.",
+					role: 'assistant',
+				};
+			}
 
 			setMessages((prev) => [...prev, botMessage]);
 
 			// Dispatch custom event to notify other components of agenda update
-			window.dispatchEvent(new CustomEvent('agendaUpdated', { detail: data }));
+			if (isAgendaUpdated) {
+				window.dispatchEvent(
+					new CustomEvent('agendaUpdated', { detail: data }),
+				);
+			}
 		} catch (error) {
 			console.error('Error sending message:', error);
 
@@ -308,10 +321,10 @@ export default function ChatBot(props: ChatBotProps) {
 		return formattedText;
 	};
 
-	// Thêm useEffect để gọi onMessagesChange khi messages thay đổi
+	// UseEffect để đồng bộ messages với parent component qua onMessagesChange
 	useEffect(() => {
 		if (onMessagesChange) {
-			onMessagesChange(messages); // Gọi hàm callback để cập nhật state ở parent component
+			onMessagesChange(messages);
 		}
 	}, [messages, onMessagesChange]);
 

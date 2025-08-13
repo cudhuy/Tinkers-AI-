@@ -17,12 +17,19 @@ type ParticipantInsight = {
 	insight: string;
 };
 
+type Attachment = {
+	name: string;
+	content: string;
+	type: string;
+};
+
 type AgendaData = {
 	title: string;
 	checklist: string[];
 	time_plan: TimePlanPoint[];
 	preparation_tips: string[];
 	participants_insights: ParticipantInsight[];
+	attachments?: Attachment[] | null;
 };
 
 export default function AgendaPage() {
@@ -36,10 +43,11 @@ export default function AgendaPage() {
 	useEffect(() => {
 		// Retrieve agenda data from localStorage
 		const storedData = localStorage.getItem('agendaData');
+
 		if (storedData) {
 			try {
 				const data = JSON.parse(storedData) as AgendaData;
-				console.log('Agenda data recieved:', data);
+				console.log('Agenda data received:', data);
 				setAgendaData(data);
 			} catch (error) {
 				console.error('Error parsing agenda data:', error);
@@ -50,16 +58,6 @@ export default function AgendaPage() {
 		}
 		setLoading(false);
 	}, [router]);
-
-	// Show off-topic detection toast when component loads
-	useEffect(() => {
-		// Display the off-topic warning toast
-		toast.warning('Wrong request', {
-			description: "Sorry, I can't help with processing this request",
-			duration: 3000, // Show for 6 seconds
-			position: 'bottom-right', // Override default position
-		});
-	}, []);
 
 	// Listen for agenda updates from the chat component
 	useEffect(() => {
@@ -91,7 +89,7 @@ export default function AgendaPage() {
 			// Generate a default title if none exists
 			const title = agendaData.title;
 
-			// Prepare the data to send - add title field
+			// Prepare the data to send - which already includes attachments
 			const dataToSend = {
 				...agendaData,
 				title: title,

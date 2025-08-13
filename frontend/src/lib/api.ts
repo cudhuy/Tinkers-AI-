@@ -17,6 +17,13 @@ type AgendaData = {
 	time_plan: TimePlanPoint[];
 	preparation_tips: string[];
 	participants_insights: ParticipantInsight[];
+	attachments?: Attachment[] | null;
+};
+
+type Attachment = {
+	name: string;
+	content: string;
+	type: string;
 };
 
 type AgendaFormData = {
@@ -26,6 +33,7 @@ type AgendaFormData = {
 	meeting_duration: string;
 	type_of_meeting?: string | null;
 	participants?: string[] | null;
+	attachments?: Attachment[] | null;
 };
 
 /**

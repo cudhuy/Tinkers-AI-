@@ -12,9 +12,15 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { EngagementChart } from '@/components/charts/EngagementChart';
-import { MeetingsChart } from '@/components/charts/MeetingsChart';
 import { useRouter } from 'next/navigation';
 import confetti from 'canvas-confetti';
+import { toast } from 'sonner';
+
+interface Attachment {
+	name: string;
+	content: string;
+	type: string;
+}
 
 interface Agenda {
 	id: string;
@@ -24,6 +30,7 @@ interface Agenda {
 	preparation_tips?: string[];
 	checklist?: string[];
 	time_plan?: Array<Record<string, string>>;
+	attachments?: Attachment[];
 }
 
 export function MeetingContent({
@@ -58,6 +65,9 @@ export function MeetingContent({
 		{ date: string; engagement: number }[]
 	>([{ date: new Date().toISOString(), engagement: 0 }]);
 
+	// Add state for conversation tips
+	const [conversationTips, setConversationTips] = useState<string[]>([]);
+
 	// Audio recording states
 	const [isRecording, setIsRecording] = useState(false);
 	const [transcripts, setTranscripts] = useState<string[]>([]);
@@ -68,12 +78,29 @@ export function MeetingContent({
 	const audioBufferRef = useRef<AudioBuffer | null>(null);
 	const audioIntervalRef = useRef<NodeJS.Timeout | null>(null);
 	const audioPlaybackPositionRef = useRef<number>(0);
+	const [isOffTopic, setIsOffTopic] = useState<boolean>(false);
+	const [topicSummary, setTopicSummary] = useState<string>('');
+	const [relevantAgendaItem, setRelevantAgendaItem] = useState<string | null>(
+		null,
+	);
+	const [topicRecommendation, setTopicRecommendation] = useState<string | null>(
+		null,
+	);
 
 	// Add after engagement state
 	const [checklistChecked, setChecklistChecked] = useState<boolean[]>([]);
 
 	// Add after checklistChecked state
 	const confettiFiredRef = useRef(false);
+
+	// Add new state for topic timeline after the topicRecommendation state
+	const [topicTimeline, setTopicTimeline] = useState<
+		Array<{
+			timestamp: string;
+			summary: string;
+			isOffTopic: boolean;
+		}>
+	>([]);
 
 	// Format seconds to hh:mm:ss
 	const formatTime = (seconds: number): string => {
@@ -102,109 +129,6 @@ export function MeetingContent({
 		};
 	}, [meetingStarted, meetingPaused]);
 
-	// Audio recording effect
-	useEffect(() => {
-		// Listen for engagement updates from the ChatBot component
-		const handleEngagementUpdate = (event: CustomEvent) => {
-			if (event.detail && event.detail.words_count && event.detail.user_type) {
-				console.log('Received engagement update:', event.detail);
-
-				// Update word counts based on user type
-				if (event.detail.user_type === 'host') {
-					setHostWords((prevCount) => prevCount + event.detail.words_count);
-				} else if (event.detail.user_type === 'guest') {
-					setGuestWords((prevCount) => prevCount + event.detail.words_count);
-				}
-
-				// Calculate and update engagement percentage
-				setTimeout(() => {
-					setHostWords((prevHostWords) => {
-						setGuestWords((prevGuestWords) => {
-							const totalWords = prevHostWords + prevGuestWords;
-							if (totalWords > 0) {
-								// Calculate guest engagement percentage (what we want to track)
-								const guestPercentage = Math.round(
-									(prevGuestWords / totalWords) * 100,
-								);
-
-								// Update engagement chart data with current timestamp and percentage
-								setEngagementData((prevData) => {
-									// Get current time for the data point
-									const now = new Date().toISOString();
-
-									// Create new data point
-									const newDataPoint = {
-										date: now,
-										engagement: guestPercentage,
-									};
-
-									// If data array is empty, initialize with this point
-									if (prevData.length === 0) {
-										return [newDataPoint];
-									}
-
-									// If the latest point was added less than 2 seconds ago, replace it
-									// instead of adding a new point - reduces visual jumpiness
-									const latestPoint = prevData[prevData.length - 1];
-									const timeDiff =
-										new Date(now).getTime() -
-										new Date(latestPoint.date).getTime();
-
-									if (timeDiff < 2000) {
-										// Replace latest point
-										return [...prevData.slice(0, -1), newDataPoint];
-									} else {
-										// Add new point and limit array to last 14 data points
-										const updatedData = [...prevData, newDataPoint];
-										return updatedData.slice(-14);
-									}
-								});
-
-								// Also update the main engagement metric
-								setEngagement(guestPercentage);
-							}
-							return prevGuestWords;
-						});
-						return prevHostWords;
-					});
-				}, 0);
-			}
-		};
-
-		// Add event listener for custom engagementUpdate events
-		window.addEventListener(
-			'engagementUpdate',
-			handleEngagementUpdate as EventListener,
-		);
-
-		// Clean up function for audio resources
-		return () => {
-			window.removeEventListener(
-				'engagementUpdate',
-				handleEngagementUpdate as EventListener,
-			);
-
-			if (
-				socketRef.current &&
-				socketRef.current.readyState === WebSocket.OPEN
-			) {
-				socketRef.current.close();
-			}
-
-			// Stop the interval timer if it's running
-			if (audioIntervalRef.current) {
-				clearInterval(audioIntervalRef.current);
-				audioIntervalRef.current = null;
-			}
-
-			// Close AudioContext if it exists
-			if (audioContextRef.current) {
-				audioContextRef.current.close();
-				audioContextRef.current = null;
-			}
-		};
-	}, []);
-
 	// Function to start audio recording
 	const startRecording = async () => {
 		try {
@@ -232,6 +156,7 @@ export function MeetingContent({
 									preparation_tips: selectedAgenda.preparation_tips || [],
 									checklist_items: selectedAgenda.checklist || [],
 									time_plan: selectedAgenda.time_plan || [],
+									attachments: selectedAgenda.attachments || [],
 							  }
 							: {
 									id: 'no_agenda',
@@ -409,28 +334,111 @@ export function MeetingContent({
 						}, 0);
 					} else if (data.checkpoint_fulfilled !== undefined) {
 						console.log('Checkpoint fulfilled:', data.checkpoint_fulfilled);
-						// checkpoint_fulfilled can be index or item name
-						setChecklistChecked((prev) => {
-							// If it's an index
-							if (typeof data.checkpoint_fulfilled === 'number') {
-								return prev.map((checked, idx) =>
-									idx === data.checkpoint_fulfilled - 1 ? true : checked,
-								);
-							}
-							// If it's a string (item name)
+						// Determine if checkpoint_fulfilled is an index or name
+						if (
+							typeof data.checkpoint_fulfilled === 'number' ||
+							!isNaN(Number(data.checkpoint_fulfilled))
+						) {
+							// It's an index, get the actual checklist item by index
+							console.log(
+								'Checkpoint fulfilled number|index:',
+								data.checkpoint_fulfilled,
+							);
+							const index = Number(data.checkpoint_fulfilled);
 							if (
-								typeof data.checkpoint_fulfilled === 'string' &&
-								selectedAgenda &&
-								selectedAgenda.checklist
+								selectedAgenda?.checklist &&
+								index >= 0 &&
+								index < selectedAgenda.checklist.length + 1
 							) {
-								return prev.map((checked, idx) =>
-									selectedAgenda.checklist &&
-									selectedAgenda.checklist[idx] === data.checkpoint_fulfilled
-										? true
-										: checked,
-								);
+								const itemIndex = index - 1;
+								setChecklistChecked((prev) => {
+									const updated = [...prev];
+									updated[itemIndex] = true;
+									return updated;
+								});
 							}
-							return prev;
+						} else {
+							// It's a direct item name
+							console.log(
+								'Checkpoint fulfilled item name:',
+								data.checkpoint_fulfilled,
+							);
+							if (selectedAgenda?.checklist) {
+								const itemIndex = selectedAgenda.checklist.findIndex(
+									(item) => item === data.checkpoint_fulfilled,
+								);
+								if (itemIndex !== -1) {
+									setChecklistChecked((prev) => {
+										const updated = [...prev];
+										updated[itemIndex] = true;
+										return updated;
+									});
+								}
+							}
+						}
+					} else if (data.is_offtopic !== undefined) {
+						console.log('Topic status:', data);
+						setIsOffTopic(data.is_offtopic);
+
+						// Update with new enhanced topic information
+						if (data.topic_summary) {
+							setTopicSummary(data.topic_summary);
+
+							// Add to topic timeline when topic changes significantly
+							setTopicTimeline((prev) => {
+								// Only add new entry if summary is different from the last one
+								if (
+									prev.length === 0 ||
+									prev[prev.length - 1].summary !== data.topic_summary
+								) {
+									return [
+										...prev,
+										{
+											timestamp: new Date().toISOString(),
+											summary: data.topic_summary,
+											isOffTopic: data.is_offtopic,
+										},
+									].slice(-10); // Keep last 10 topic changes
+								}
+								return prev;
+							});
+						}
+
+						if (data.relevant_agenda_item !== undefined) {
+							setRelevantAgendaItem(data.relevant_agenda_item);
+						}
+
+						if (data.recommendation !== undefined) {
+							setTopicRecommendation(data.recommendation);
+						}
+
+						if (data.is_offtopic) {
+							// Show toast warning for off-topic conversation
+							toast.warning('Off-topic conversation detected', {
+								description:
+									data.topic_summary ||
+									'The conversation is moving away from the agenda items.',
+								duration: 5000,
+								position: 'bottom-right',
+							});
+						} else if (isOffTopic) {
+							// If previously off-topic but now back on topic
+							toast.success('Back on topic', {
+								description:
+									'The conversation has returned to the agenda items.',
+								duration: 3000,
+								position: 'bottom-right',
+							});
+						}
+					} else if (data.new_conversation_tip) {
+						console.log('New conversation tip:', data.new_conversation_tip);
+						setConversationTips((prev) => [...prev, data.new_conversation_tip]);
+
+						// Show toast for new conversation tip
+						toast.info('New conversation tip', {
+							description: data.new_conversation_tip,
+							duration: 5000,
+							position: 'bottom-right',
 						});
 					} else if (data.error) {
 						console.error('Error from server:', data.error);
@@ -607,53 +615,6 @@ export function MeetingContent({
 		}
 	};
 
-	const renderSuggestion = () => {
-		// Use checklist items from selected agenda, or default items if not available
-		const checklistItems = selectedAgenda?.checklist || [];
-
-		return (
-			<Card>
-				<CardHeader>
-					<CardTitle>Checklist</CardTitle>
-					<CardDescription>
-						Track your progress during the meeting
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
-					<ul className='space-y-2'>
-						{checklistItems.map((item: string, index: number) => (
-							<li key={index} className='flex items-start gap-2'>
-								<input
-									type='checkbox'
-									id={`checklist-item-${index}`}
-									className='h-4 w-4 rounded border-gray-300 text-black focus:ring-black cursor-pointer mt-1'
-									checked={!!checklistChecked[index]}
-									onChange={() => {
-										setChecklistChecked((prev) => {
-											const updated = [...prev];
-											updated[index] = !updated[index];
-											return updated;
-										});
-									}}
-								/>
-								<label
-									htmlFor={`checklist-item-${index}`}
-									className={`text-sm cursor-pointer ${
-										checklistChecked[index]
-											? 'text-gray-400 line-through'
-											: 'text-gray-700'
-									}`}
-								>
-									{item}
-								</label>
-							</li>
-						))}
-					</ul>
-				</CardContent>
-			</Card>
-		);
-	};
-
 	// Add after checklistChecked state
 	useEffect(() => {
 		const allChecked =
@@ -739,7 +700,30 @@ export function MeetingContent({
 		<main className='flex-1 p-4 md:p-6'>
 			<div className='space-y-6'>
 				{/* Meeting control buttons */}
-				<div className='flex justify-end gap-2'>
+				<div className='flex justify-end gap-2 items-center'>
+					{/* Status and Timer Inline with Buttons */}
+					<div className='flex items-center mr-auto gap-4'>
+						<div className='flex items-center gap-2'>
+							<Badge
+								className={
+									!meetingStarted
+										? 'bg-gray-500'
+										: meetingPaused
+										? 'bg-yellow-500'
+										: 'bg-green-500'
+								}
+							>
+								{!meetingStarted
+									? 'Ready'
+									: meetingPaused
+									? 'Paused'
+									: 'In Progress'}
+							</Badge>
+							{isRecording && <Badge className='bg-red-500'>Recording</Badge>}
+						</div>
+						<div className='font-mono font-bold'>{formatTime(elapsedTime)}</div>
+					</div>
+
 					{!meetingStarted ? (
 						<Button
 							onClick={startMeeting}
@@ -778,73 +762,16 @@ export function MeetingContent({
 
 				<div className='grid gap-4 md:grid-cols-3'>
 					<div className='md:col-span-2'>
-						<div className='grid gap-4 md:grid-cols-3'>
+						<div className='grid gap-4'>
+							{/* Checklist Card */}
 							<Card>
-								<CardHeader className='pb-2'>
-									<CardTitle>Meeting Status</CardTitle>
-								</CardHeader>
-								<CardContent>
-									<div className='text-3xl font-bold'>
-										{!meetingStarted
-											? 'Not Started'
-											: meetingPaused
-											? 'Paused'
-											: 'Active'}
-									</div>
-									<div className='flex items-center gap-2 text-sm mt-2'>
-										<Badge
-											className={
-												!meetingStarted
-													? 'bg-gray-500'
-													: meetingPaused
-													? 'bg-yellow-500'
-													: 'bg-green-500'
-											}
-										>
-											{!meetingStarted
-												? 'Ready'
-												: meetingPaused
-												? 'Paused'
-												: 'In Progress'}
-										</Badge>
-										{isRecording && (
-											<Badge className='bg-red-500'>Recording</Badge>
-										)}
-									</div>
-								</CardContent>
-							</Card>
-
-							<Card>
-								<CardHeader className='pb-2'>
-									<CardTitle>Elapsed Time</CardTitle>
-								</CardHeader>
-								<CardContent>
-									<div className='text-3xl font-bold'>
-										{formatTime(elapsedTime)}
-									</div>
-									<div className='flex items-center gap-2 text-sm mt-2'>
-										<Badge variant='outline'>
-											{startTime
-												? `Started at ${new Date(
-														startTime,
-												  ).toLocaleTimeString()}`
-												: 'Not started yet'}
-										</Badge>
-									</div>
-								</CardContent>
-							</Card>
-
-							<Card>
-								<CardHeader className='pb-2'>
-									<CardTitle>Progress</CardTitle>
-								</CardHeader>
-								<CardContent>
-									{/* Progress now counts checked checklist items */}
-									<div className='text-3xl font-bold'>
-										{checklistChecked.filter(Boolean).length}/
-										{checklistChecked.length}
-									</div>
-									<div className='flex items-center gap-2 text-sm mt-2'>
+								<CardHeader className='pb-2 flex flex-row items-center justify-between'>
+									<CardTitle>Checklist</CardTitle>
+									<div className='flex items-center gap-2'>
+										<span className='text-sm font-medium'>
+											{checklistChecked.filter(Boolean).length}/
+											{checklistChecked.length}
+										</span>
 										<Badge
 											variant='outline'
 											className={
@@ -856,7 +783,7 @@ export function MeetingContent({
 										>
 											{checklistChecked.length > 0 &&
 											checklistChecked.every(Boolean)
-												? 'All items completed'
+												? 'Complete'
 												: `${
 														checklistChecked.length === 0
 															? 0
@@ -865,65 +792,302 @@ export function MeetingContent({
 																		checklistChecked.length) *
 																		100,
 															  )
-												  }% complete`}
+												  }%`}
 										</Badge>
 									</div>
-								</CardContent>
-							</Card>
-						</div>
-
-						<div className='mt-4 grid gap-4'>
-							{renderSuggestion()}
-
-							<Card>
-								<CardHeader>
-									<CardTitle>Time Plan</CardTitle>
-									<CardDescription>Timeline for the meeting</CardDescription>
 								</CardHeader>
 								<CardContent>
-									<div className='space-y-3'>
-										{(selectedAgenda?.time_plan || []).map((item, index) => {
-											const timeSlot = Object.keys(item)[0];
-											const activity = item[timeSlot];
-											return (
-												<div
-													key={index}
-													className='border-l-2 border-gray-300 pl-3'
-												>
-													<div className='text-sm font-medium text-gray-500'>
-														{timeSlot}
-													</div>
-													<div className='mt-0.5'>{activity}</div>
+									<ul className='space-y-2'>
+										{(selectedAgenda?.checklist || []).map(
+											(item: string, index: number) => (
+												<li key={index} className='flex items-start gap-2'>
+													<input
+														type='checkbox'
+														id={`checklist-item-${index}`}
+														className='h-4 w-4 rounded border-gray-300 text-black focus:ring-black cursor-pointer mt-1'
+														checked={!!checklistChecked[index]}
+														onChange={() => {
+															setChecklistChecked((prev) => {
+																const updated = [...prev];
+																updated[index] = !updated[index];
+																return updated;
+															});
+														}}
+													/>
+													<label
+														htmlFor={`checklist-item-${index}`}
+														className={`text-sm cursor-pointer ${
+															checklistChecked[index]
+																? 'text-gray-400 line-through'
+																: 'text-gray-700'
+														}`}
+													>
+														{item}
+													</label>
+												</li>
+											),
+										)}
+									</ul>
+								</CardContent>
+							</Card>
+
+							{/* Conversation Tips and User Engagement Cards Side by Side */}
+							<div className='grid grid-cols-2 gap-4'>
+								{/* Conversation Tips Card */}
+								<Card>
+									<CardHeader className='pb-0'>
+										<CardTitle className='text-sm font-medium'>
+											Conversation Tips
+										</CardTitle>
+									</CardHeader>
+									<CardContent>
+										<div className='max-h-[150px] overflow-y-auto'>
+											{conversationTips.length > 0 ? (
+												<div className='space-y-3'>
+													{conversationTips.map((tip, index) => (
+														<div
+															key={index}
+															className='rounded-md bg-blue-50 p-3 text-sm border-l-4 border-blue-400'
+														>
+															<div className='text-blue-700'>{tip}</div>
+														</div>
+													))}
 												</div>
-											);
-										})}
+											) : (
+												<div className='rounded-md bg-gray-50 p-3 text-sm'>
+													<div className='text-gray-700'>
+														{meetingStarted
+															? 'Helpful conversation tips will appear here as the meeting progresses.'
+															: 'Start the meeting to receive tailored conversation tips.'}
+													</div>
+												</div>
+											)}
+										</div>
+									</CardContent>
+								</Card>
+
+								{/* User Engagement Card */}
+								<Card>
+									<CardHeader className='pb-0'>
+										<CardTitle className='text-sm font-medium'>
+											User Engagement
+										</CardTitle>
+									</CardHeader>
+									<CardContent>
+										<EngagementChart data={engagementData} />
+									</CardContent>
+								</Card>
+							</div>
+
+							{/* Topic Relevance Card */}
+							<Card>
+								<CardHeader className='pb-0'>
+									<CardTitle className='text-sm font-medium'>
+										Topic Relevance
+									</CardTitle>
+								</CardHeader>
+								<CardContent>
+									<div className='flex flex-col gap-3'>
+										<div className='flex items-center justify-between'>
+											<span>Status:</span>
+											<Badge
+												className={isOffTopic ? 'bg-red-500' : 'bg-green-500'}
+											>
+												{isOffTopic ? 'Off Topic' : 'On Topic'}
+											</Badge>
+										</div>
+
+										{/* Topic Summary Section */}
+										<div className='border-b pb-2'>
+											<div className='font-semibold text-sm mb-1'>
+												Current Topic:
+											</div>
+											<div className='text-sm'>
+												{topicSummary ||
+													(meetingStarted
+														? 'Analyzing conversation...'
+														: 'Start the meeting to track topics.')}
+											</div>
+										</div>
+
+										{/* Relevant Agenda Item Section */}
+										{!isOffTopic && relevantAgendaItem && (
+											<div className='border-b pb-2'>
+												<div className='font-semibold text-sm mb-1'>
+													Related to:
+												</div>
+												<div className='text-sm flex items-center gap-1'>
+													<span className='bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs font-medium'>
+														{relevantAgendaItem}
+													</span>
+												</div>
+											</div>
+										)}
+
+										{/* Recommendation Section */}
+										{topicRecommendation && (
+											<div className='pt-1'>
+												<div className='font-semibold text-sm mb-1'>
+													Suggestion:
+												</div>
+												<div className='text-sm italic text-gray-600'>
+													"{topicRecommendation}"
+												</div>
+											</div>
+										)}
+
+										{isOffTopic && (
+											<div className='rounded-md bg-red-50 p-3 text-sm mt-1'>
+												<div className='font-semibold text-red-800 mb-1'>
+													Off-topic detected:
+												</div>
+												<div className='text-red-700'>{topicSummary}</div>
+												{topicRecommendation && (
+													<div className='mt-2 text-red-600 italic border-t border-red-200 pt-1'>
+														Tip: {topicRecommendation}
+													</div>
+												)}
+											</div>
+										)}
+
+										{!isOffTopic && meetingStarted && topicSummary && (
+											<div className='rounded-md bg-green-50 p-3 text-sm mt-1'>
+												<div className='font-semibold text-green-800 mb-1'>
+													On topic:
+												</div>
+												<div className='text-green-700'>{topicSummary}</div>
+											</div>
+										)}
+
+										{!meetingStarted && (
+											<div className='rounded-md bg-gray-50 p-3 text-sm'>
+												<div className='text-gray-700'>
+													Start the meeting to track topic relevance.
+												</div>
+											</div>
+										)}
 									</div>
 								</CardContent>
 							</Card>
 						</div>
 					</div>
 
-					<div className='space-y-4'>
+					<div className='md:col-span-1 space-y-4'>
+						{/* Time Plan Card */}
 						<Card>
-							<CardHeader className='pb-0'>
-								<CardTitle className='text-sm font-medium'>
-									User Engagement
-								</CardTitle>
+							<CardHeader>
+								<CardTitle className='text-sm font-medium'>Time Plan</CardTitle>
+								<CardDescription className='text-xs'>
+									Timeline for the meeting
+								</CardDescription>
 							</CardHeader>
 							<CardContent>
-								<EngagementChart data={engagementData} />
+								<div className='space-y-3 font-semibold'>
+									{(selectedAgenda?.time_plan || []).map((item, index) => {
+										const timeSlot = Object.keys(item)[0];
+										const activity = item[timeSlot];
+
+										// Parse timeSlot format (startingTime - endTime) where each time is in minutes:seconds
+										const [startStr, endStr] = timeSlot
+											.split('-')
+											.map((t) => t.trim());
+
+										// Convert start and end times to seconds
+										const toSeconds = (timeStr: string) => {
+											const [minutes, seconds] = timeStr.split(':').map(Number);
+											return minutes * 60 + seconds;
+										};
+
+										const startSeconds = toSeconds(startStr);
+										const endSeconds = toSeconds(endStr);
+
+										// Check if current elapsed time falls within this time slot
+										const isCurrentActivity =
+											elapsedTime >= startSeconds && elapsedTime < endSeconds;
+
+										// Check if this activity is in the past (completed)
+										const isPastActivity = elapsedTime >= endSeconds;
+
+										return (
+											<div
+												key={index}
+												className={`border-l-2 pl-3 ${
+													isCurrentActivity
+														? 'border-green-500'
+														: isPastActivity
+														? 'border-gray-400'
+														: 'border-gray-300'
+												}`}
+											>
+												<div className='text-sm font-medium text-gray-500'>
+													{timeSlot}
+												</div>
+												<div
+													className={`mt-0.5 text-sm ${
+														isCurrentActivity
+															? 'font-bold text-green-600'
+															: isPastActivity
+															? 'text-gray-500'
+															: ''
+													}`}
+												>
+													{activity}
+												</div>
+											</div>
+										);
+									})}
+								</div>
 							</CardContent>
 						</Card>
-						<Card>
-							<CardHeader className='pb-0'>
-								<CardTitle className='text-sm font-medium'>
-									Monthly Meetings
-								</CardTitle>
-							</CardHeader>
-							<CardContent>
-								<MeetingsChart data={meetingsData} />
-							</CardContent>
-						</Card>
+
+						{/* Topic Timeline Card - Moved to right column */}
+						{meetingStarted && topicTimeline.length > 0 && (
+							<Card>
+								<CardHeader className='pb-0'>
+									<CardTitle className='text-sm font-medium'>
+										Topic Timeline
+									</CardTitle>
+									<CardDescription className='text-xs'>
+										Topic transitions during the meeting
+									</CardDescription>
+								</CardHeader>
+								<CardContent className='pt-2'>
+									<div className='space-y-2 max-h-[200px] overflow-y-auto pr-1'>
+										{topicTimeline.map((item, index) => (
+											<div
+												key={index}
+												className='flex gap-2 items-start text-sm'
+											>
+												<div className='text-gray-500 min-w-[60px]'>
+													{new Date(item.timestamp).toLocaleTimeString([], {
+														hour: '2-digit',
+														minute: '2-digit',
+													})}
+												</div>
+												<div
+													className={`flex-1 p-2 rounded-md text-xs ${
+														item.isOffTopic
+															? 'bg-red-50 text-red-700'
+															: 'bg-green-50 text-green-700'
+													}`}
+												>
+													<span
+														className={`inline-block px-1.5 py-0.5 text-xs rounded mr-1.5 ${
+															item.isOffTopic
+																? 'bg-red-200 text-red-800'
+																: 'bg-green-200 text-green-800'
+														}`}
+													>
+														{item.isOffTopic ? 'Off Topic' : 'On Topic'}
+													</span>
+													{item.summary}
+												</div>
+											</div>
+										))}
+									</div>
+								</CardContent>
+							</Card>
+						)}
 					</div>
 				</div>
 			</div>

@@ -34,8 +34,11 @@ function Badge({
 	VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
 	const Comp = asChild ? Slot : 'span';
 
+	// Use React.useMemo to ensure stable component selection between server and client
+	const Component = React.useMemo(() => Comp, [asChild]);
+
 	return (
-		<Comp
+		<Component
 			data-slot='badge'
 			className={cn(badgeVariants({ variant }), className)}
 			{...props}

@@ -124,7 +124,7 @@ export default async function HomePage() {
 			<header className='sticky top-0 z-10 border-b bg-background px-4 py-3 md:px-6'>
 				<div className='flex items-center justify-between'>
 					<div className='flex items-center gap-2'>
-						<h1 className='font-semibold text-lg'>Facilitator Dashboard</h1>
+						<h1 className='font-semibold text-lg'>Cue Dashboard</h1>
 					</div>
 					<div className='flex items-center gap-2'>
 						<Button variant='outline' size='sm' asChild>
