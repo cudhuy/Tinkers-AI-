@@ -1,9 +1,9 @@
-# 01: Proof of Concept (POC) Definition - AI Meeting Facilitator (Revised)
+# 01: Proof of Concept (POC) Definition - AI Meeting Cue (Revised)
 
 **Version:** 1.1
 **Status:** Final Draft
 **Date:** 06-08-2025
-**Purpose:** To define the precise scope, minimum viable features, demonstration scenario, and success criteria for the AI Meeting Facilitator POC, developed within a 20-hour hackathon constraint. This version incorporates requirements for agenda handling, LLM-based topic adherence, a multi-agent system, and TTS output as **Must Haves**. This guides the development effort by ruthlessly prioritizing features for a *minimal viable demonstration*.
+**Purpose:** To define the precise scope, minimum viable features, demonstration scenario, and success criteria for the AI Meeting Cue POC, developed within a 20-hour hackathon constraint. This version incorporates requirements for agenda handling, LLM-based topic adherence, a multi-agent system, and TTS output as **Must Haves**. This guides the development effort by ruthlessly prioritizing features for a *minimal viable demonstration*.
 
 **Constraint Reminder:** The 20-hour time limit is critical. All "Must Have" features must be implemented in their simplest possible form.
 
@@ -32,7 +32,7 @@ To demonstrate a minimal end-to-end flow where:
     *   *Agent 1:* Generates time warnings (e.g., "2 minutes remaining on [Topic]").
     *   *Agent 2:* Generates relevance feedback (e.g., "Let's stay focused on [Topic]" or potentially no output if on-topic).
 10. **Output Selection & Synthesis:** The coordinator selects the highest priority agent response (if any), sends the text to OpenAI TTS API.
-11. **Output Delivery:** The synthesized audio (speech) response from the facilitator is played back.
+11. **Output Delivery:** The synthesized audio (speech) response from the Cue is played back.
 12. **Topic Transition:** When Agent 1's timer expires or upon a simulated trigger, Agent 1 announces the next topic via TTS.
 
 ## 3. Agents Schema & Organization
@@ -108,15 +108,15 @@ A coordinator-based approach will be used for simplicity in the POC.
 ## 5. Defined Demo Scenario (Revised)
 
 1.  **Setup:** Ensure `agenda.json` (or similar) is present with at least 2 topics (e.g., Topic 1: "Project Update", 1 min; Topic 2: "Blocker Discussion", 1 min).
-2.  **Start:** Run the main application script. Log "AI Facilitator POC Initialized. Loading agenda..."
-3.  **Agent 1 Action:** Facilitator speaks (TTS Output): "Starting the meeting. First topic is Project Update. You have 1 minute."
+2.  **Start:** Run the main application script. Log "AI Cue POC Initialized. Loading agenda..."
+3.  **Agent 1 Action:** Cue speaks (TTS Output): "Starting the meeting. First topic is Project Update. You have 1 minute."
 4.  **Simulate User Speech (On Topic):** Send audio chunk (~15s) relevant to "Project Update".
 5.  **Observe:** Logs show transcription. Coordinator sends text to Topic Analyzer. Topic Analyzer LLM call assesses as relevant. (Optional: Log shows "Agent 2: On topic"). *No TTS output expected.*
 6.  **Simulate User Speech (Off Topic):** Send audio chunk (~15s) clearly irrelevant (e.g., talking about weekend plans).
 7.  **Observe:** Logs show transcription. Coordinator sends text to Topic Analyzer. Topic Analyzer LLM call assesses as irrelevant.
-8.  **Agent 2 Action:** Facilitator speaks (TTS Output): "Let's stay focused on the Project Update for now."
+8.  **Agent 2 Action:** Cue speaks (TTS Output): "Let's stay focused on the Project Update for now."
 9.  **Wait/Simulate Time Passing:** Let the 1-minute timer for Topic 1 expire.
-10. **Agent 1 Action:** Facilitator speaks (TTS Output): "Time's up for Project Update. Moving to the next topic: Blocker Discussion. You have 1 minute."
+10. **Agent 1 Action:** Cue speaks (TTS Output): "Time's up for Project Update. Moving to the next topic: Blocker Discussion. You have 1 minute."
 11. **End:** Demo concludes after showcasing topic transition.
 
 ## 6. POC Success Criteria (Revised)
@@ -129,6 +129,6 @@ The POC will be considered successful if:
 *   **SC4:** The Coordinator correctly routes information to both Agent 1 and Agent 2.
 *   **SC5:** **Agent 1 (Agenda/Time Keeper)** successfully announces topics and triggers topic transition via TTS based on the loaded agenda.
 *   **SC6:** **Agent 2 (Topic Analyzer)** successfully uses an LLM call to assess relevance and triggers a corrective TTS response *only* when demo speech is off-topic.
-*   **SC7:** **OpenAI TTS** is successfully used for all facilitator speech output.
+*   **SC7:** **OpenAI TTS** is successfully used for all Cue speech output.
 *   **SC8:** The multi-agent structure (Coordinator, Agent 1, Agent 2) is implemented.
 *   **SC9:** Basic setup/run instructions in `README.md` work.
