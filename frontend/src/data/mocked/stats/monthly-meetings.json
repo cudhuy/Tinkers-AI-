@@ -1,0 +1,52 @@
+[
+	{
+		"month": "Jan",
+		"meetings": 12,
+		"successful": 3
+	},
+	{
+		"month": "Feb",
+		"meetings": 15,
+		"successful": 5
+	},
+	{
+		"month": "Mar",
+		"meetings": 18,
+		"successful": 8
+	},
+	{
+		"month": "Apr",
+		"meetings": 13,
+		"successful": 9
+	},
+	{
+		"month": "May",
+		"meetings": 22,
+		"successful": 17
+	},
+	{
+		"month": "Jun",
+		"meetings": 19,
+		"successful": 13
+	},
+	{
+		"month": "Jul",
+		"meetings": 25,
+		"successful": 22
+	},
+	{
+		"month": "Aug",
+		"meetings": 16,
+		"successful": 15
+	},
+	{
+		"month": "Sep",
+		"meetings": 20,
+		"successful": 16
+	},
+	{
+		"month": "Oct",
+		"meetings": 23,
+		"successful": 18
+	}
+]

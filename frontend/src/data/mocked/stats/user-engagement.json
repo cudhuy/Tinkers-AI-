@@ -1,0 +1,58 @@
+[
+	{
+		"date": "2023-10-01",
+		"engagement": 45
+	},
+	{
+		"date": "2023-10-02",
+		"engagement": 52
+	},
+	{
+		"date": "2023-10-03",
+		"engagement": 38
+	},
+	{
+		"date": "2023-10-04",
+		"engagement": 62
+	},
+	{
+		"date": "2023-10-05",
+		"engagement": 57
+	},
+	{
+		"date": "2023-10-06",
+		"engagement": 43
+	},
+	{
+		"date": "2023-10-07",
+		"engagement": 25
+	},
+	{
+		"date": "2023-10-08",
+		"engagement": 32
+	},
+	{
+		"date": "2023-10-09",
+		"engagement": 48
+	},
+	{
+		"date": "2023-10-10",
+		"engagement": 53
+	},
+	{
+		"date": "2023-10-11",
+		"engagement": 61
+	},
+	{
+		"date": "2023-10-12",
+		"engagement": 59
+	},
+	{
+		"date": "2023-10-13",
+		"engagement": 67
+	},
+	{
+		"date": "2023-10-14",
+		"engagement": 42
+	}
+]

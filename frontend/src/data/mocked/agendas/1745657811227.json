@@ -1,0 +1,47 @@
+{
+	"id": "1745657811227",
+	"datetime": "2025-04-26T08:56:51.227Z",
+	"title": "tqwrqwr",
+	"checklist": [
+		"Present product features and benefits clearly",
+		"Address client needs and objections effectively",
+		"Secure commitment for a pilot project",
+		"Schedule a follow-up meeting to discuss technical details",
+		"Agree on the next steps and timelines"
+	],
+	"preparation_tips": [
+		"Prepare clear and concise key messages focusing on product benefits relevant to the client",
+		"Anticipate common objections and prepare responses to address them confidently",
+		"Tailor value propositions to address potential client pain points",
+		"Be ready to suggest pilot project details including scope and timelines",
+		"Have a clear plan for scheduling the follow-up technical meeting"
+	],
+	"time_plan": [
+		{
+			"00:00 - 00:05": "Introduction and meeting objectives"
+		},
+		{
+			"00:05 - 00:15": "Presentation of product features and alignment with client needs"
+		},
+		{
+			"00:15 - 00:25": "Discussion: Addressing client questions and objections"
+		},
+		{
+			"00:25 - 00:30": "Closing: Securing commitment, agreeing on next steps, and scheduling follow-up"
+		}
+	],
+	"participant_insights": [
+		{
+			"participant": "Sales Manager (suggested)",
+			"insight": "Focus on product benefits, client needs alignment, and closing the deal"
+		},
+		{
+			"participant": "Technical Expert (suggested)",
+			"insight": "Address technical questions and provide support for pilot planning"
+		},
+		{
+			"participant": "Client Representative (suggested)",
+			"insight": "Interested in how the product meets their specific needs and ROI"
+		}
+	]
+}
